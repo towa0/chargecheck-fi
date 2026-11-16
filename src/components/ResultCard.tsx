@@ -166,7 +166,8 @@ export const ResultCard = forwardRef<HTMLElement, Props>(function ResultCard(
             <span className="visually-hidden">. Estimated from the published tariff.</span>
           </p>
         )}
-        {statusesLoaded && <Freshness result={result} now={now} />}
+        {/* Keep the line's height while statuses load, so cards don't jump. */}
+        {statusesLoaded ? <Freshness result={result} now={now} /> : <span className="fresh" aria-hidden="true">&nbsp;</span>}
       </div>
       <button type="button" className="card-toggle" aria-expanded={expanded} aria-controls={detailsId} onClick={onToggle}>
         Details

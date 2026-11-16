@@ -239,3 +239,82 @@ describe('createStatusPoller', () => {
     expect(calls).toHaveLength(1);
   });
 });
+
+describe('poller backoff and progress', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-16T12:00:00Z'));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('doubles the wait after each failure and resets after a success', async () => {
+    let failing = true;
+    const api = fakeApi(() => (failing ? 'fail' : { statuses: [st('A', 'AVAILABLE', new Date().toISOString())] }));
+    const errors: unknown[] = [];
+    const poller = createStatusPoller({
+      fetch: api.fetchFn,
+      visibility: fakeVisibility(),
+      onUpdate: () => {},
+      onError: (e) => errors.push(e),
+      pageDelayMs: 0,
+    });
+    poller.start();
+    await vi.advanceTimersByTimeAsync(0); // t=0 fails
+    await vi.advanceTimersByTimeAsync(60_000); // t=60 fails
+    expect(api.calls).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(119_000);
+    expect(api.calls).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(1_000); // t=180 fails
+    expect(api.calls).toHaveLength(3);
+    await vi.advanceTimersByTimeAsync(239_000);
+    expect(api.calls).toHaveLength(3);
+    failing = false;
+    await vi.advanceTimersByTimeAsync(1_000); // t=420 succeeds
+    expect(api.calls).toHaveLength(4);
+    expect(errors).toHaveLength(3);
+    await vi.advanceTimersByTimeAsync(60_000); // back to every 60 s
+    expect(api.calls).toHaveLength(5);
+    poller.stop();
+  });
+
+  it('caps the backoff', async () => {
+    const api = fakeApi(() => 'fail');
+    const poller = createStatusPoller({
+      fetch: api.fetchFn,
+      visibility: fakeVisibility(),
+      onUpdate: () => {},
+      pageDelayMs: 0,
+      maxBackoffMs: 120_000,
+    });
+    poller.start();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(60_000 + 120_000 + 120_000 + 120_000);
+    // t = 0, 60, 180, 300, 420
+    expect(api.calls).toHaveLength(5);
+    poller.stop();
+  });
+
+  it('reports page progress during the first full load only', async () => {
+    const api = fakeApi((call) => {
+      const c = call.url.searchParams.get('cursor');
+      return c === 'p3' ? { statuses: [] } : { statuses: [], next: c === 'p2' ? 'p3' : c ? 'x' : 'p2' };
+    });
+    const progress: number[] = [];
+    const poller = createStatusPoller({
+      fetch: api.fetchFn,
+      visibility: fakeVisibility(),
+      onUpdate: () => {},
+      onProgress: (n) => progress.push(n),
+      pageDelayMs: 0,
+    });
+    poller.start();
+    // The page loop sleeps between pages, even with a zero delay.
+    await vi.advanceTimersByTimeAsync(10);
+    expect(progress).toEqual([1, 2, 3]);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(progress).toEqual([1, 2, 3]);
+    poller.stop();
+  });
+});

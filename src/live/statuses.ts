@@ -51,7 +51,9 @@ export async function fetchStatuses(
   modifiedAfter: string | null,
   pageDelayMs: number,
   sleep: (ms: number) => Promise<void>,
+  onPage?: (pagesLoaded: number) => void,
 ): Promise<ApiStatus[]> {
+  let pages = 0;
   const all: ApiStatus[] = [];
   let cursor: string | null | undefined;
   do {
@@ -64,6 +66,8 @@ export async function fetchStatuses(
     if (!res.ok) throw new Error(`Status request failed: ${res.status}`);
     const page = (await res.json()) as StatusPage;
     if (Array.isArray(page.statuses)) all.push(...page.statuses);
+    pages++;
+    onPage?.(pages);
     const next = page.pagination?.nextCursor;
     cursor = next && next !== cursor ? next : null;
     if (cursor) await sleep(pageDelayMs);
@@ -91,7 +95,11 @@ export interface PollerOptions {
   visibility: Visibility;
   onUpdate: (map: StatusMap) => void;
   onError?: (err: unknown) => void;
+  /** Called after each page of the first full load. */
+  onProgress?: (pagesLoaded: number) => void;
   intervalMs?: number;
+  /** Longest wait between retries after errors. */
+  maxBackoffMs?: number;
   pageDelayMs?: number;
   now?: () => number;
 }
@@ -104,10 +112,13 @@ export interface StatusPoller {
 /**
  * Loads all statuses once, then fetches changes every interval while the page is visible.
  * A new request batch never starts sooner than one interval after the previous one started.
+ * After errors the wait doubles (60 s, 120 s, 240 s ...) up to maxBackoffMs.
  */
 export function createStatusPoller(opts: PollerOptions): StatusPoller {
   const interval = opts.intervalMs ?? POLL_INTERVAL_MS;
   const pageDelay = opts.pageDelayMs ?? 300;
+  const maxBackoff = opts.maxBackoffMs ?? 10 * 60_000;
+  let failures = 0;
   const now = opts.now ?? (() => Date.now());
   const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -127,7 +138,8 @@ export function createStatusPoller(opts: PollerOptions): StatusPoller {
   function schedule(): void {
     clear();
     if (!running || inFlight || opts.visibility.isHidden()) return;
-    const wait = Math.max(0, lastStart + interval - now());
+    const delay = failures === 0 ? interval : Math.min(interval * 2 ** (failures - 1), Math.max(interval, maxBackoff));
+    const wait = Math.max(0, lastStart + delay - now());
     timer = setTimeout(() => {
       timer = null;
       void tick();
@@ -140,12 +152,14 @@ export function createStatusPoller(opts: PollerOptions): StatusPoller {
     lastStart = now();
     try {
       const since = loaded ? latestModifiedAt(map) : null;
-      const statuses = await fetchStatuses(opts.fetch, since, pageDelay, sleep);
+      const statuses = await fetchStatuses(opts.fetch, since, pageDelay, sleep, loaded ? undefined : opts.onProgress);
       if (!running) return;
       map = mergeStatuses(map, statuses);
       loaded = true;
+      failures = 0;
       opts.onUpdate(map);
     } catch (err) {
+      failures++;
       opts.onError?.(err);
     } finally {
       inFlight = false;

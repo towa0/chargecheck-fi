@@ -79,11 +79,13 @@ const fetchStatuses = (list: ApiStatus[]): FetchLike => async () =>
 
 const visible: Visibility = { isHidden: () => false, subscribe: () => () => {} };
 
+const pending: FetchLike = () => new Promise<Response>(() => {});
+
 function renderApp(list = chargers, live: ApiStatus[] | null = statuses) {
   return render(
     <App
       data={source(list)}
-      statusFetch={live ? fetchStatuses(live) : null}
+      statusFetch={live ? fetchStatuses(live) : pending}
       visibility={visible}
       now={() => NOW}
       mapView={null}
@@ -152,7 +154,7 @@ describe('result card states', () => {
     expect(within(c).queryByRole('table')).not.toBeInTheDocument();
   });
 
-  it('shows "no live status" pills while statuses are off and still shows prices', async () => {
+  it('shows a checking pill while statuses load and still shows prices', async () => {
     renderApp(chargers, null);
     const c = await screen.findByRole('article', { name: 'Single price' });
     expect(within(c).getByText('Checking…')).toBeInTheDocument();

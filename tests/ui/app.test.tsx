@@ -200,7 +200,7 @@ describe('App', () => {
   });
 
   it('shows a loading state before statuses arrive', async () => {
-    renderApp(null);
+    renderApp(() => new Promise<Response>(() => {}));
     await screen.findByRole('article', { name: 'Alpha AC' });
     expect(within(card('Alpha AC')).getByText('Checking…')).toBeInTheDocument();
   });

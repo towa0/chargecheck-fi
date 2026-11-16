@@ -14,7 +14,7 @@ import { useMediaQuery } from './hooks/useMediaQuery.ts';
 import { useStatuses } from './hooks/useStatuses.ts';
 import { documentVisibility, type FetchLike, type Visibility } from './live/statuses.ts';
 import { buildResults, type EstimateCache, type Point, type SortKey } from './logic/results.ts';
-import { pickBest } from './logic/best.ts';
+import { pickBest, type BestPick } from './logic/best.ts';
 import { cheaperHint, type HintCache } from './logic/hints.ts';
 import { loadSettings, resolveStart, saveSettings, timeLabel, type Settings } from './logic/settings.ts';
 
@@ -52,10 +52,18 @@ function defaultStorage(): Storage | null {
 
 const defaultFetch: FetchLike = (url, init) => fetch(url, init);
 
+// One shared object: a new one per render would restart the status poller on every render.
+let sharedVisibility: Visibility | null = null;
+function defaultVisibility(): Visibility | null {
+  if (typeof document === 'undefined') return null;
+  sharedVisibility ??= documentVisibility();
+  return sharedVisibility;
+}
+
 export function App({
   data = httpDataSource,
   statusFetch = defaultFetch,
-  visibility = typeof document !== 'undefined' ? documentVisibility() : null,
+  visibility = defaultVisibility(),
   now = Date.now,
   mapView = LazyMap,
   announceDelayMs = 1000,
@@ -91,7 +99,13 @@ export function App({
     [storage],
   );
 
-  const { statuses, error: statusError } = useStatuses(statusFetch, visibility);
+  // Live statuses start after the charger data, so they don't slow down the first useful render.
+  const dataReady = Boolean(tariffs && regions[settings.region]);
+  const [statusesStarted, setStatusesStarted] = useState(false);
+  useEffect(() => {
+    if (dataReady) setStatusesStarted(true);
+  }, [dataReady]);
+  const { statuses, error: statusError, pages: statusPages } = useStatuses(statusesStarted ? statusFetch : null, visibility);
 
   useEffect(() => {
     let cancelled = false;
@@ -160,6 +174,8 @@ export function App({
   useEffect(() => setShown(PAGE_SIZE), [filterKey]);
 
   const count = results?.length ?? 0;
+  // Status pages hold 500 locations each, nationwide.
+  const expectedPages = Math.max(1, Math.ceil((meta?.counts.locations ?? 3800) / 500));
   const regionLabel = meta?.regions[settings.region]?.label ?? settings.region;
   const countText = results ? `${count} ${count === 1 ? 'charger' : 'chargers'} found in ${regionLabel}.` : '';
   const announcement = useAnnouncement(countText, filterKey, announceDelayMs);
@@ -171,9 +187,15 @@ export function App({
     return cheaperHint(r, tariffs, settings.energyKWh, start, hintCache.current);
   };
   const selectedResult = selectedId ? (results?.find((r) => r.charger.id === selectedId) ?? null) : null;
-  const best = results
-    ? pickBest(results, statuses !== null, { fastOnly: settings.fastOnly, connector: settings.connector })
-    : null;
+  const best: BestPick | null = !results
+    ? null
+    : statusError && !statuses
+      ? {
+          kind: 'none',
+          reason: "Live availability is unavailable right now, so I can't tell which chargers are free. Prices below still work.",
+          fix: null,
+        }
+      : pickBest(results, statuses !== null, { fastOnly: settings.fastOnly, connector: settings.connector });
 
   const toggle = useCallback((id: string) => {
     setExpanded((prev) => {
@@ -290,15 +312,35 @@ export function App({
             </p>
           )}
           {statusError && (
-            <p className="notice">Live status is not available right now. I'll try again in a minute.</p>
+            <p className="notice">
+              Live availability unavailable right now. Prices are still shown, and I'll keep trying with longer waits.
+            </p>
           )}
-          {!results && !loadError && <p className="muted">Loading chargers…</p>}
+          {!results && !loadError && (
+            <div className="skeletons">
+              <p className="muted">Loading chargers…</p>
+              <div className="skeleton skeleton-best" aria-hidden="true">
+                <span className="sk sk-title" />
+                <span className="sk sk-price" />
+                <span className="sk sk-line" />
+              </div>
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="skeleton" aria-hidden="true">
+                  <span className="sk sk-title" />
+                  <span className="sk sk-price" />
+                  <span className="sk sk-line" />
+                  <span className="sk sk-line sk-short" />
+                </div>
+              ))}
+            </div>
+          )}
           {results && best && (
             <BestCard
               pick={best}
               energyKWh={settings.energyKWh}
               startLabel={timeLabel(settings, clock)}
               hint={best.kind === 'best' ? hintFor(best.result) : null}
+              progress={!statuses && !statusError && statusFetch ? { pages: statusPages, expected: expectedPages } : null}
               onShow={showCard}
               onFix={applyFix}
             />
@@ -359,7 +401,7 @@ export function App({
                       }}
                       result={r}
                       now={clock}
-                      statusesLoaded={statuses !== null}
+                      statusesLoaded={statuses !== null || statusError || !statusFetch}
                       selected={r.charger.id === selectedId}
                       highlighted={r.charger.id === highlightedId}
                       expanded={expanded.has(r.charger.id)}

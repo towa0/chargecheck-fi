@@ -11,9 +11,11 @@ interface Props {
   hint: CheaperHint | null;
   onShow: (id: string) => void;
   onFix: ((fix: 'fast' | 'connector') => void) | null;
+  /** First load of live statuses, page by page. */
+  progress?: { pages: number; expected: number } | null;
 }
 
-export function BestCard({ pick, energyKWh, startLabel, hint, onShow, onFix }: Props) {
+export function BestCard({ pick, energyKWh, startLabel, hint, onShow, onFix, progress = null }: Props) {
   if (pick.kind === 'waiting') {
     return (
       <section className="best best-waiting" aria-labelledby="best-heading">
@@ -21,6 +23,14 @@ export function BestCard({ pick, energyKWh, startLabel, hint, onShow, onFix }: P
           Best right now
         </h2>
         <p className="muted">Checking which chargers are free…</p>
+        {progress && (
+          <div className="live-loading">
+            <label htmlFor="status-progress">Loading live availability…</label>
+            <progress id="status-progress" max={progress.expected} value={Math.min(progress.pages, progress.expected)}>
+              {progress.pages} of {progress.expected} pages
+            </progress>
+          </div>
+        )}
       </section>
     );
   }
