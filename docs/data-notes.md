@@ -190,6 +190,20 @@ Standards: `IEC_62196_T2` 14,170, `IEC_62196_T2_COMBO` 5,451, `DOMESTIC_F` 382,
   tariff might intend.
 - **EVSE ids** contain `*`, which is fine in JSON but needs encoding in URLs.
 
+## What the estimate engine refuses
+
+Running `src/tariff/` on every tariff for 30 kWh at 22 kW, starting at probe time:
+
+| Reason | Tariffs |
+| --- | --- |
+| Validity ended (`endDateTime` in the past) | 77 |
+| `CONGESTION_TIME` component | 49 |
+| `reservation` restriction | 4 |
+
+The other 1,631 tariffs get an estimate. Every connector with an expired tariff also lists
+a current one, so the expired ones cost nothing in coverage. 441 EVSEs that do have tariffs
+get no estimate at all: 429 because of `CONGESTION_TIME` and 12 because of `reservation`.
+
 ## Example tariffs
 
 Energy only, VAT added on top:

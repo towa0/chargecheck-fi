@@ -74,7 +74,7 @@ export interface Session {
 }
 
 export interface BreakdownLine {
-  type: KnownDimension | 'MIN_PRICE' | 'MAX_PRICE';
+  type: KnownDimension;
   /** kWh for ENERGY, hours for TIME and PARKING_TIME, 1 for FLAT. */
   quantity: number;
   /** Price per unit including VAT. */

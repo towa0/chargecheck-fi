@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import { fetchAllPages, getJson, readJson, writeJson } from './lib/digitraffic.ts';
 import type { ApiLocationFeature, ApiOperator, ApiStatus } from '../src/data/api.ts';
 import type { Tariff } from '../src/tariff/types.ts';
+import { estimate } from '../src/tariff/estimate.ts';
 
 const CACHE = '.cache';
 
@@ -196,6 +197,28 @@ async function main(): Promise<void> {
   }
   show('Status values', statusValues);
   show('Status age from lastUpdatedAt', ages);
+
+  // Run the engine on every tariff for a typical session, now, to see what it refuses.
+  const start = new Date();
+  const refusals = new Map<string, number>();
+  const refusedIds = new Set<string>();
+  for (const t of tariffs) {
+    const r = estimate(t, { energyKWh: 30, avgPowerKW: 22, start });
+    if (!r.ok) {
+      count(refusals, r.reason);
+      refusedIds.add(t.id);
+    }
+  }
+  show('Engine refusals (30 kWh at 22 kW, starting now)', refusals);
+  let evsesAllRefused = 0;
+  for (const f of locations) {
+    for (const evse of f.properties.evses ?? []) {
+      const ids = (evse.connectors ?? []).flatMap((c) => c.tariffIds ?? []).filter((id) => tariffById.has(id));
+      if (ids.length > 0 && ids.every((id) => refusedIds.has(id))) evsesAllRefused++;
+    }
+  }
+  console.log(`  tariffs refused: ${refusedIds.size} of ${tariffs.length}`);
+  console.log(`  EVSEs with tariffs where every tariff is refused: ${evsesAllRefused}`);
 
   // Three examples with clearly different structures.
   const picks: Tariff[] = [];
