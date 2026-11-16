@@ -188,6 +188,10 @@ Standards: `IEC_62196_T2` 14,170, `IEC_62196_T2_COMBO` 5,451, `DOMESTIC_F` 382,
 - **`CONGESTION_TIME` and `reservation`.** Not estimated. `CONGESTION_TIME` has no OCPI
   definition, and reservation pricing doesn't apply to a walk-up session in the way the
   tariff might intend.
+- **Location ids are not unique.** 32 ids are shared by locations from different operators.
+  Operator id plus location id is unique, so I use that.
+- **One duplicate EVSE.** One EVSE id is listed twice inside the same location, and its status
+  appears twice too. I keep the first.
 - **EVSE ids** contain `*`, which is fine in JSON but needs encoding in URLs.
 
 ## What the estimate engine refuses
