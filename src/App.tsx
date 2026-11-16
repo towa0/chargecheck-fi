@@ -15,6 +15,7 @@ import { useStatuses } from './hooks/useStatuses.ts';
 import { documentVisibility, type FetchLike, type Visibility } from './live/statuses.ts';
 import { buildResults, type EstimateCache, type Point, type SortKey } from './logic/results.ts';
 import { pickBest } from './logic/best.ts';
+import { cheaperHint, type HintCache } from './logic/hints.ts';
 import { loadSettings, resolveStart, saveSettings, timeLabel, type Settings } from './logic/settings.ts';
 
 const PAGE_SIZE = 50;
@@ -80,6 +81,7 @@ export function App({
   const reducedMotion = useMemo(prefersReducedMotion, []);
   const itemRefs = useRef(new Map<string, HTMLElement>());
   const cache = useRef<EstimateCache>(new Map());
+  const hintCache = useRef<HintCache>(new Map());
 
   const setSettings = useCallback(
     (next: Settings) => {
@@ -163,6 +165,11 @@ export function App({
   const announcement = useAnnouncement(countText, filterKey, announceDelayMs);
 
   const visible = results ? results.slice(0, shown) : [];
+  const hintFor = (r: (typeof visible)[number]) => {
+    if (!tariffs) return null;
+    if (hintCache.current.size > 20_000) hintCache.current = new Map();
+    return cheaperHint(r, tariffs, settings.energyKWh, start, hintCache.current);
+  };
   const selectedResult = selectedId ? (results?.find((r) => r.charger.id === selectedId) ?? null) : null;
   const best = results
     ? pickBest(results, statuses !== null, { fastOnly: settings.fastOnly, connector: settings.connector })
@@ -291,7 +298,7 @@ export function App({
               pick={best}
               energyKWh={settings.energyKWh}
               startLabel={timeLabel(settings, clock)}
-              hint={null}
+              hint={best.kind === 'best' ? hintFor(best.result) : null}
               onShow={showCard}
               onFix={applyFix}
             />
@@ -356,7 +363,7 @@ export function App({
                       selected={r.charger.id === selectedId}
                       highlighted={r.charger.id === highlightedId}
                       expanded={expanded.has(r.charger.id)}
-                      hint={null}
+                      hint={hintFor(r)}
                       onToggle={() => toggle(r.charger.id)}
                       onHighlight={setHighlightedId}
                     />

@@ -12,14 +12,11 @@ import {
 } from '../logic/format.ts';
 import type { ChargerCost, Result } from '../logic/results.ts';
 import { freshness, statusSummary } from '../logic/status.ts';
+import type { CheaperHint } from '../logic/hints.ts';
 import { ChevronIcon, DirectionsIcon } from './Icons.tsx';
 import { StatusPill } from './StatusPill.tsx';
 
-export interface CheaperHint {
-  saving: number;
-  label: string;
-  currency: string;
-}
+export type { CheaperHint };
 
 interface Props {
   result: Result;
@@ -163,7 +160,12 @@ export const ResultCard = forwardRef<HTMLElement, Props>(function ResultCard(
           {standards.length > 0 && <span className="connectors">{standards.join(', ')}</span>}
         </div>
         {cost.kind === 'refused' && <p className="quiet">Can't estimate: {cost.reason}</p>}
-        {hint && <p className="hint">{hintText(hint)}</p>}
+        {hint && (
+          <p className="hint">
+            {hintText(hint)}
+            <span className="visually-hidden">. Estimated from the published tariff.</span>
+          </p>
+        )}
         {statusesLoaded && <Freshness result={result} now={now} />}
       </div>
       <button type="button" className="card-toggle" aria-expanded={expanded} aria-controls={detailsId} onClick={onToggle}>
