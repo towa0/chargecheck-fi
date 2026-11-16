@@ -290,14 +290,14 @@ export function App({
       </section>
 
       {MapComponent && !wide && (
-        <div className="viewswitch" role="group" aria-label="View">
+        <nav className="viewswitch" aria-label="View">
           <button type="button" aria-pressed={view === 'list'} onClick={() => setView('list')}>
             <ListIcon /> List
           </button>
           <button type="button" aria-pressed={view === 'map'} onClick={() => setView('map')}>
             <MapIcon /> Map
           </button>
-        </div>
+        </nav>
       )}
 
       <div className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">

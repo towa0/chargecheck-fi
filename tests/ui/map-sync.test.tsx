@@ -118,7 +118,7 @@ describe('list and map sync on wide screens', () => {
     renderApp();
     await screen.findByRole('article', { name: 'Alpha' });
     expect(screen.getByTestId('fake-map')).toBeInTheDocument();
-    expect(screen.queryByRole('group', { name: 'View' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: 'View' })).not.toBeInTheDocument();
   });
 
   it('highlights the pin while a card is hovered or focused', async () => {

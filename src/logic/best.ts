@@ -47,7 +47,7 @@ export function pickBest(results: readonly Result[], statusesLoaded: boolean, f:
   return { kind: 'none', reason: 'The free chargers that match have no price in the open data.', fix: null };
 }
 
-/** "150 kW DC" for the most powerful matching EVSE. */
+/** "150 kW DC" for the highest-power matching EVSE. */
 export function powerBadge(evses: readonly Evse[]): string | null {
   let top: Evse | null = null;
   for (const e of evses) if (e.kw !== null && (!top || e.kw > (top.kw ?? 0))) top = e;

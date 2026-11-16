@@ -68,7 +68,7 @@ describe('pickBest', () => {
 });
 
 describe('powerBadge and links', () => {
-  it('labels the most powerful EVSE as AC or DC', () => {
+  it('labels the highest-power EVSE as AC or DC', () => {
     expect(powerBadge([evse(22, ['IEC_62196_T2']), evse(150, ['IEC_62196_T2_COMBO'])])).toBe('150 kW DC');
     expect(powerBadge([evse(7.4, ['IEC_62196_T2'])])).toBe('7.4 kW AC');
     expect(powerBadge([evse(null, ['IEC_62196_T2'])])).toBeNull();

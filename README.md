@@ -51,30 +51,34 @@ npm test          # unit and UI tests
 npm run typecheck
 npm run build     # production build in dist/
 npm run probe     # fetch everything into .cache/ and print what the data looks like
+npm run contrast  # check every colour pair in tokens.css, light and dark
 ```
 
 `npm run data -- --cached` and `npm run probe -- --cached` reuse `.cache/` instead of calling the API again.
 
-The live status poller asks for changes once a minute while the page is visible, and stops when the tab is hidden.
+The live status poller asks for changes once a minute while the page is visible, and stops when the tab is hidden. After errors it waits longer each time, up to 10 minutes.
 
 ```
 .github/workflows/pages.yml   test, build data, build and deploy to GitHub Pages
 docs/data-notes.md            what the API fields mean and what I measured
 scripts/
   lib/digitraffic.ts          API client with paging
+  lib/contrast.ts             WCAG contrast checks for the colour tokens
   probe.ts                    data probe
   build-data.ts               writes and validates public/data/*.json
+  contrast.ts                 prints the contrast table
 src/
-  tariff/                     estimate engine (pure TypeScript, no DOM or network)
+  tariff/                     estimate engine and cheaper-start search (pure TypeScript)
   live/statuses.ts            status loading, merging and polling
   data/                       data types, regions and shape checks
-  logic/                      filtering, sorting and formatting
-  components/                 controls, result card and map
+  logic/                      filtering, sorting, best pick, map grouping, settings
+  components/                 charge bar, cards, map and icons
+  styles/                     tokens.css (colours, spacing, type) and app.css
   App.tsx
 tests/
   tariff/                     hand-written and real-tariff cases
   fixtures/tariffs.json       13 real tariffs (Fintraffic, CC BY 4.0)
-  live/ data/ ui/
+  live/ data/ logic/ design/ ui/
 ```
 
 More about the data and its quirks: [docs/data-notes.md](docs/data-notes.md).

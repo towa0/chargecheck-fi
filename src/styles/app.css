@@ -661,7 +661,6 @@ select {
   gap: var(--sp-3);
 }
 
-.result,
 .card {
   background: var(--surface);
   border: 1px solid var(--line);
@@ -671,62 +670,9 @@ select {
   transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
 }
 
-.result {
-  padding: var(--sp-4);
-  display: grid;
-  gap: var(--sp-2);
-}
-
-.result-selected,
 .card-selected {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent);
-}
-
-.result h3 {
-  font-size: var(--fs-md);
-}
-
-.facts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-1) var(--sp-3);
-  color: var(--ink-2);
-  font-size: var(--fs-sm);
-}
-
-.avail {
-  font-weight: 700;
-}
-
-.avail-yes {
-  color: var(--free);
-}
-
-.avail-no {
-  color: var(--down);
-}
-
-.stale {
-  color: var(--warn);
-}
-
-.cost-value {
-  font-size: var(--fs-lg);
-  font-variant-numeric: tabular-nums;
-}
-
-.cost-none {
-  color: var(--ink-2);
-}
-
-.breakdown summary {
-  cursor: pointer;
-  color: var(--accent);
-  font-weight: 600;
-  min-height: 44px;
-  display: flex;
-  align-items: center;
 }
 
 .breakdown-option {
