@@ -2,7 +2,8 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type
 import { ChargeBar } from './components/ChargeBar.tsx';
 import { Header } from './components/Header.tsx';
 import { ListIcon, MapIcon } from './components/Icons.tsx';
-import { ResultItem } from './components/ResultItem.tsx';
+import { BestCard } from './components/BestCard.tsx';
+import { ResultCard } from './components/ResultCard.tsx';
 import type { MapViewProps } from './components/MapView.tsx';
 import { DEFAULT_POINT } from './data/regions.ts';
 import { httpDataSource, type DataSource } from './data/source.ts';
@@ -12,7 +13,8 @@ import { useMediaQuery } from './hooks/useMediaQuery.ts';
 import { useStatuses } from './hooks/useStatuses.ts';
 import { documentVisibility, type FetchLike, type Visibility } from './live/statuses.ts';
 import { buildResults, type EstimateCache, type Point, type SortKey } from './logic/results.ts';
-import { loadSettings, resolveStart, saveSettings, type Settings } from './logic/settings.ts';
+import { pickBest } from './logic/best.ts';
+import { loadSettings, resolveStart, saveSettings, timeLabel, type Settings } from './logic/settings.ts';
 
 const PAGE_SIZE = 50;
 const REPO_URL = 'https://github.com/towa0/chargecheck-fi';
@@ -69,6 +71,8 @@ export function App({
   const [locationError, setLocationError] = useState(false);
   const [shown, setShown] = useState(PAGE_SIZE);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const [view, setView] = useState<'list' | 'map'>('list');
   const [clock, setClock] = useState(now);
   const wide = useMediaQuery(WIDE);
@@ -158,6 +162,44 @@ export function App({
   const announcement = useAnnouncement(countText, filterKey, announceDelayMs);
 
   const visible = results ? results.slice(0, shown) : [];
+  const best = results
+    ? pickBest(results, statuses !== null, { fastOnly: settings.fastOnly, connector: settings.connector })
+    : null;
+
+  const toggle = useCallback((id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const showCard = useCallback(
+    (id: string) => {
+      if (results) {
+        const index = results.findIndex((r) => r.charger.id === id);
+        if (index >= shown) setShown(index + 1);
+      }
+      setExpanded((prev) => new Set(prev).add(id));
+      setSelectedId(id);
+      setView('list');
+      // Wait a frame so the card exists and is expanded before moving to it.
+      requestAnimationFrame(() => {
+        const el = itemRefs.current.get(id);
+        if (!el) return;
+        el.scrollIntoView?.({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' });
+        el.focus({ preventScroll: true });
+      });
+    },
+    [results, shown, reducedMotion],
+  );
+
+  const applyFix = useCallback(
+    (fix: 'fast' | 'connector') =>
+      setSettings(fix === 'connector' ? { ...settings, connector: '' } : { ...settings, fastOnly: false }),
+    [settings, setSettings],
+  );
 
   const onUseLocation = useCallback(() => {
     if (!geolocation) return;
@@ -182,7 +224,7 @@ export function App({
       setSelectedId(id);
       const el = itemRefs.current.get(id);
       if (el && wide) {
-        el.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'center' });
+        el.scrollIntoView?.({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'center' });
         el.focus({ preventScroll: true });
       }
     },
@@ -238,6 +280,21 @@ export function App({
               {loadError}
             </p>
           )}
+          {statusError && (
+            <p className="notice">Live status is not available right now. I'll try again in a minute.</p>
+          )}
+          {!results && !loadError && <p className="muted">Loading chargers…</p>}
+          {results && best && (
+            <BestCard
+              pick={best}
+              energyKWh={settings.energyKWh}
+              startLabel={timeLabel(settings, clock)}
+              hint={null}
+              onShow={showCard}
+              onFix={applyFix}
+            />
+          )}
+          {results && (
           <div className="results-head">
             <h2 id="results-heading" className="results-title">
               Chargers
@@ -255,29 +312,51 @@ export function App({
               </select>
             </div>
           </div>
-          {statusError && (
-            <p className="notice">Live status is not available right now. I'll try again in a minute.</p>
           )}
-          {!results && !loadError && <p className="muted">Loading chargers…</p>}
           {results && (
             <>
               <p className="result-count muted">
-                {count === 0
-                  ? 'No chargers match. Try another connector or turn off "Fast only".'
-                  : `Showing ${Math.min(shown, count)} of ${countText} ${distanceFrom}.`}
+                {count === 0 ? 'No chargers match.' : `Showing ${Math.min(shown, count)} of ${countText} ${distanceFrom}.`}
               </p>
+              {count === 0 && (
+                <div className="empty">
+                  <p>Nothing matches these filters in {regionLabel}.</p>
+                  <div className="empty-actions">
+                    {settings.fastOnly && (
+                      <button type="button" className="btn" onClick={() => applyFix('fast')}>
+                        Turn off 'Fast only'
+                      </button>
+                    )}
+                    {settings.connector && (
+                      <button type="button" className="btn" onClick={() => applyFix('connector')}>
+                        Use any connector
+                      </button>
+                    )}
+                    {settings.region !== 'finland' && (
+                      <button type="button" className="btn" onClick={() => setSettings({ ...settings, region: 'finland' })}>
+                        Search all of Finland
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
               <ol className="results" aria-labelledby="results-heading">
                 {visible.map((r) => (
                   <li key={r.charger.id}>
-                    <ResultItem
+                    <ResultCard
                       ref={(el) => {
                         if (el) itemRefs.current.set(r.charger.id, el);
                         else itemRefs.current.delete(r.charger.id);
                       }}
                       result={r}
                       now={clock}
+                      statusesLoaded={statuses !== null}
                       selected={r.charger.id === selectedId}
-                      onShowOnMap={null}
+                      highlighted={r.charger.id === highlightedId}
+                      expanded={expanded.has(r.charger.id)}
+                      hint={null}
+                      onToggle={() => toggle(r.charger.id)}
+                      onHighlight={setHighlightedId}
                     />
                   </li>
                 ))}

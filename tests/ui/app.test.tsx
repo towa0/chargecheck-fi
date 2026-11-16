@@ -135,11 +135,11 @@ afterEach(() => {
 describe('App', () => {
   it('shows the three cost states', async () => {
     renderApp();
-    await screen.findByText('Alpha AC');
+    await screen.findByRole('article', { name: 'Alpha AC' });
     // 30 kWh * 0.20 * 1.255
-    expect(within(card('Alpha AC')).getByText('€7.53', { selector: '.cost-value' })).toBeInTheDocument();
-    expect(within(card('Alpha AC')).getByText(/Estimated cost/)).toBeInTheDocument();
-    expect(within(card('Bravo DC')).getByText('€12.00', { selector: '.cost-value' })).toBeInTheDocument();
+    expect(within(card('Alpha AC')).getByText('€7.53', { selector: '.price-value' })).toBeInTheDocument();
+    expect(within(card('Alpha AC')).getByText('estimated')).toBeInTheDocument();
+    expect(within(card('Bravo DC')).getByText('€12.00', { selector: '.price-value' })).toBeInTheDocument();
     expect(within(card('Charlie no price')).getByText('Price not in the open data')).toBeInTheDocument();
     expect(within(card('Delta congestion')).getByText(/Can't estimate: .*CONGESTION_TIME/)).toBeInTheDocument();
   });
@@ -147,7 +147,7 @@ describe('App', () => {
   it('sorts by estimated cost, then distance and power', async () => {
     const user = userEvent.setup();
     renderApp();
-    await screen.findByText('Alpha AC');
+    await screen.findByRole('article', { name: 'Alpha AC' });
     // Chargers without an estimate go last, nearest first.
     expect(names()).toEqual(['Alpha AC', 'Bravo DC', 'Charlie no price', 'Delta congestion']);
     await user.selectOptions(screen.getByLabelText('Sort by'), 'distance');
@@ -159,7 +159,7 @@ describe('App', () => {
   it('filters fast chargers and connector types', async () => {
     const user = userEvent.setup();
     renderApp();
-    await screen.findByText('Alpha AC');
+    await screen.findByRole('article', { name: 'Alpha AC' });
     await user.click(screen.getByLabelText(FAST));
     expect(names()).toEqual(['Bravo DC', 'Delta congestion']);
     await user.click(screen.getByLabelText(FAST));
@@ -171,43 +171,46 @@ describe('App', () => {
   it('recomputes the estimate when energy changes and flags bad input', async () => {
     const user = userEvent.setup();
     renderApp();
-    await screen.findByText('Alpha AC');
+    await screen.findByRole('article', { name: 'Alpha AC' });
     await setCustomEnergy(user, '10');
     // 10 * 0.20 * 1.255
-    expect(within(card('Alpha AC')).getByText('€2.51', { selector: '.cost-value' })).toBeInTheDocument();
+    expect(within(card('Alpha AC')).getByText('€2.51', { selector: '.price-value' })).toBeInTheDocument();
     const energy = await setCustomEnergy(user, '');
     expect(screen.getByText('Enter a number from 1 to 200.')).toBeInTheDocument();
     expect(energy).toHaveAttribute('aria-invalid', 'true');
     // Keeps the last valid estimate.
-    expect(within(card('Alpha AC')).getByText('€2.51', { selector: '.cost-value' })).toBeInTheDocument();
+    expect(within(card('Alpha AC')).getByText('€2.51', { selector: '.price-value' })).toBeInTheDocument();
   });
 
   it('shows live availability with its age and flags stale statuses', async () => {
     renderApp();
-    await screen.findByText('Alpha AC');
+    await screen.findByRole('article', { name: 'Alpha AC' });
     const alpha = card('Alpha AC');
-    await waitFor(() => expect(within(alpha).getByText('1 of 2 available')).toBeInTheDocument());
-    expect(alpha).toHaveTextContent('1 in use');
-    expect(alpha).toHaveTextContent('updated 3 h ago');
-    expect(alpha).not.toHaveTextContent('status may be outdated');
+    await waitFor(() => expect(within(alpha).getByText('1 of 2 free')).toBeInTheDocument());
+    await userEvent.setup().click(within(alpha).getByRole('button', { name: 'Details: Alpha AC' }));
+    expect(alpha).toHaveTextContent('1 free, 1 in use');
+    expect(alpha).toHaveTextContent('status 3 h ago');
+    expect(alpha).not.toHaveTextContent('may be outdated');
     const bravo = card('Bravo DC');
-    expect(bravo).toHaveTextContent('updated 30 h ago');
-    expect(bravo).toHaveTextContent('status may be outdated');
+    expect(bravo).toHaveTextContent('status 30 h ago');
+    expect(bravo).toHaveTextContent('may be outdated');
+    expect(card('Charlie no price')).toHaveTextContent('No live status');
+    await userEvent.setup().click(within(card('Charlie no price')).getByRole('button', { name: 'Details: Charlie no price' }));
     expect(card('Charlie no price')).toHaveTextContent('1 with no live status');
   });
 
   it('shows a loading state before statuses arrive', async () => {
     renderApp(null);
-    await screen.findByText('Alpha AC');
-    expect(within(card('Alpha AC')).getByText('Checking live status…')).toBeInTheDocument();
+    await screen.findByRole('article', { name: 'Alpha AC' });
+    expect(within(card('Alpha AC')).getByText('Checking…')).toBeInTheDocument();
   });
 
   it('expands the cost breakdown', async () => {
     const user = userEvent.setup();
     renderApp();
-    await screen.findByText('Alpha AC');
+    await screen.findByRole('article', { name: 'Alpha AC' });
     const alpha = card('Alpha AC');
-    await user.click(within(alpha).getByText('Cost breakdown'));
+    await user.click(within(alpha).getByRole('button', { name: 'Details: Alpha AC' }));
     const table = within(alpha).getByRole('table');
     expect(within(table).getByRole('rowheader', { name: 'Energy' })).toBeInTheDocument();
     expect(table).toHaveTextContent('30.0 kWh × €0.251 / kWh (VAT 25.5%)');
@@ -227,7 +230,7 @@ describe('charge bar', () => {
   it('works with the keyboard alone', async () => {
     const user = userEvent.setup();
     renderApp();
-    await screen.findByText('Alpha AC');
+    await screen.findByRole('article', { name: 'Alpha AC' });
     const energyChip = screen.getByRole('button', { name: 'Energy: 30 kWh' });
     energyChip.focus();
     await user.keyboard('{Enter}');
@@ -241,7 +244,7 @@ describe('charge bar', () => {
     expect(screen.getByRole('button', { name: 'Energy: 50 kWh' })).toHaveFocus();
     expect(screen.queryByRole('radio', { name: '50 kWh' })).not.toBeInTheDocument();
     // 50 * 0.20 * 1.255
-    expect(within(card('Alpha AC')).getByText('€12.55', { selector: '.cost-value' })).toBeInTheDocument();
+    expect(within(card('Alpha AC')).getByText('€12.55', { selector: '.price-value' })).toBeInTheDocument();
 
     await user.tab();
     expect(screen.getByRole('button', { name: 'Start: Now' })).toHaveFocus();
@@ -257,7 +260,7 @@ describe('charge bar', () => {
   it('closes a panel with Done and on a pointer pick', async () => {
     const user = userEvent.setup();
     renderApp();
-    await screen.findByText('Alpha AC');
+    await screen.findByRole('article', { name: 'Alpha AC' });
     await user.click(screen.getByRole('button', { name: 'Start: Now' }));
     await user.click(screen.getByRole('radio', { name: 'Tonight 22:00' }));
     expect(screen.queryByRole('radio', { name: 'Now' })).not.toBeInTheDocument();
@@ -275,7 +278,7 @@ describe('charge bar', () => {
       setItem: (k: string, v: string) => void m.set(k, v),
     } as unknown as Storage;
     const first = renderApp(statusesFetch(baseStatuses), storage);
-    await screen.findByText('Alpha AC');
+    await screen.findByRole('article', { name: 'Alpha AC' });
     await user.click(screen.getByRole('button', { name: 'Energy: 30 kWh' }));
     await user.click(screen.getByRole('radio', { name: '10 kWh' }));
     await user.click(screen.getByLabelText(FAST));
@@ -288,7 +291,7 @@ describe('charge bar', () => {
   it('switches region from the header', async () => {
     const user = userEvent.setup();
     renderApp();
-    await screen.findByText('Alpha AC');
+    await screen.findByRole('article', { name: 'Alpha AC' });
     await user.click(screen.getByRole('radio', { name: 'Finland' }));
     await waitFor(() => expect(screen.getByText(/found in Finland/)).toBeInTheDocument());
   });
@@ -325,7 +328,7 @@ describe('live region', () => {
     renderApp(fetchFn);
     const region = screen.getByRole('status');
     await waitFor(() => expect(region).toHaveTextContent('4 chargers found in Oulu.'));
-    await waitFor(() => expect(card('Alpha AC')).toHaveTextContent('1 of 2 available'));
+    await waitFor(() => expect(card('Alpha AC')).toHaveTextContent('1 of 2 free'));
 
     const changes: string[] = [];
     const observer = new MutationObserver(() => changes.push(region.textContent ?? ''));
@@ -333,7 +336,7 @@ describe('live region', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(60_000);
     });
-    await waitFor(() => expect(card('Alpha AC')).toHaveTextContent('2 of 2 available'));
+    await waitFor(() => expect(card('Alpha AC')).toHaveTextContent('2 of 2 free'));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2_000);
     });
@@ -347,9 +350,9 @@ describe('accessibility', () => {
   it('has no axe violations', async () => {
     const user = userEvent.setup();
     const { container } = renderApp();
-    await screen.findByText('Alpha AC');
-    await waitFor(() => expect(card('Alpha AC')).toHaveTextContent('1 of 2 available'));
-    await user.click(within(card('Alpha AC')).getByText('Cost breakdown'));
+    await screen.findByRole('article', { name: 'Alpha AC' });
+    await waitFor(() => expect(card('Alpha AC')).toHaveTextContent('1 of 2 free'));
+    await user.click(within(card('Alpha AC')).getByRole('button', { name: 'Details: Alpha AC' }));
     // jsdom has no layout or computed colours, so contrast is checked by hand instead (see src/styles.css).
     const result = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } });
     expect(result.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`)).toEqual([]);

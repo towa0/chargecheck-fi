@@ -33,3 +33,25 @@ export function freshness(a: Availability | null, now: number): { text: string; 
   else ago = `${Math.floor(min / 1440)} days ago`;
   return { text: `status ${ago}`, stale: ms > STALE_AFTER_MS };
 }
+
+const STATUS_WORDS: Record<string, string> = {
+  AVAILABLE: 'free',
+  CHARGING: 'in use',
+  BLOCKED: 'blocked',
+  RESERVED: 'reserved',
+  OUTOFORDER: 'out of order',
+  INOPERATIVE: 'not working',
+  PLANNED: 'not open yet',
+  REMOVED: 'removed',
+  UNKNOWN: 'status unknown',
+};
+
+/** "1 free, 1 in use, 1 with no live status" */
+export function statusSummary(a: Availability | null): string | null {
+  if (!a) return null;
+  const parts = [...a.byStatus.entries()]
+    .sort(([x], [y]) => (x === 'AVAILABLE' ? -1 : y === 'AVAILABLE' ? 1 : 0))
+    .map(([s, n]) => `${n} ${STATUS_WORDS[s] ?? s.toLowerCase()}`);
+  if (a.unknown > 0) parts.push(`${a.unknown} with no live status`);
+  return parts.length > 0 ? parts.join(', ') : null;
+}
