@@ -90,23 +90,19 @@ describe('status API failure', () => {
     const data: DataSource = { meta: async () => meta, tariffs: async () => tariffs, region: async (id) => ({ region: id, chargers }) };
     renderApp(data, failing);
     const card = await screen.findByRole('article', { name: 'Alpha' });
-    await waitFor(() => expect(screen.getByText(/Live availability unavailable right now/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Live availability unavailable\. Retrying in the background\./)).toBeInTheDocument());
     expect(within(card).getByText('€9.00', { selector: '.price-value' })).toBeInTheDocument();
     expect(card).toHaveTextContent('No live status');
     expect(screen.getByRole('region', { name: 'Best right now' })).toHaveTextContent("can't tell which chargers are free");
     expect(calls).toBe(1);
+    // A failed full load is retried after five minutes, not sooner.
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(60_000);
+      await vi.advanceTimersByTimeAsync(299_000);
+    });
+    expect(calls).toBe(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
     });
     expect(calls).toBe(2);
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(60_000);
-    });
-    // Second retry waits 120 s.
-    expect(calls).toBe(2);
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(60_000);
-    });
-    expect(calls).toBe(3);
   });
 });

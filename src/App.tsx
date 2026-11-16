@@ -313,7 +313,7 @@ export function App({
           )}
           {statusError && (
             <p className="notice">
-              Live availability unavailable right now. Prices are still shown, and I'll keep trying with longer waits.
+              Live availability unavailable. Retrying in the background. Prices are still shown.
             </p>
           )}
           {!results && !loadError && (

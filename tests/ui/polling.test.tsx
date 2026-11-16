@@ -51,3 +51,37 @@ describe('status polling in the real app wiring', () => {
     expect(calls).toBe(7);
   });
 });
+
+describe('hard cap on status requests', () => {
+  it('stays within the cap while the app is mounted, re-rendered and unmounted many times', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const urls: string[] = [];
+    const statusFetch: FetchLike = async (url) => {
+      urls.push(url);
+      return new Response(
+        JSON.stringify({
+          statuses: [{ evseId: 'a1', status: 'AVAILABLE', modifiedAt: new Date(Date.now()).toISOString(), lastUpdatedAt: new Date().toISOString() }],
+          pagination: { nextCursor: null },
+        }),
+      );
+    };
+    const app = (n: number) => (
+      <App data={data} statusFetch={statusFetch} mapView={null} geolocation={null} storage={null} announceDelayMs={10 + n} />
+    );
+    // 10 minutes of churn: every 20 s the app is unmounted and mounted again, and re-rendered 5 times.
+    for (let i = 0; i < 30; i++) {
+      const view = render(app(0));
+      await screen.findByRole('article', { name: 'Alpha' });
+      for (let j = 1; j <= 5; j++) view.rerender(app(j));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      view.unmount();
+    }
+    const full = urls.filter((u) => !u.includes('modifiedAfter'));
+    // At most one batch per 60 s over 600 s (11 with the first) and one full load per 5 minutes.
+    expect(urls.length).toBeGreaterThan(0);
+    expect(urls.length).toBeLessThanOrEqual(11);
+    expect(full.length).toBe(1);
+  });
+});

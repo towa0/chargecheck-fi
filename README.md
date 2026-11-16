@@ -4,7 +4,7 @@ Find a charger in Finland that's free right now, and see what charging there wou
 
 Open data from [Fintraffic](https://www.digitraffic.fi/) (Data: Fintraffic / digitraffic.fi, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)). Costs are estimates from published tariffs. Not affiliated with any operator.
 
-<!-- Screenshot placeholder: add docs/screenshot.png and link it here. -->
+<img src="docs/screenshot.png" alt="Desktop: charger list with estimated prices next to a map of Oulu" width="640"> <img src="docs/screenshot-390.png" alt="Phone: best charger right now and the list" width="195">
 
 Live site: https://towa0.github.io/chargecheck-fi/
 

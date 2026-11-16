@@ -217,13 +217,16 @@ describe('createStatusPoller', () => {
     poller.stop();
   });
 
-  it('reports errors and retries a failed full load after the interval', async () => {
+  it('reports errors and retries a failed full load after five minutes', async () => {
     const { calls, errors, updates, poller } = setup((i) => i === 0);
     poller.start();
     await vi.advanceTimersByTimeAsync(0);
     expect(errors).toHaveLength(1);
     expect(updates).toHaveLength(0);
-    await vi.advanceTimersByTimeAsync(60_000);
+    // A full load counts against the five-minute cap even when it fails.
+    await vi.advanceTimersByTimeAsync(299_000);
+    expect(calls).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1_000);
     expect(calls).toHaveLength(2);
     expect(calls[1]?.url.searchParams.has('modifiedAfter')).toBe(false);
     expect(updates).toHaveLength(1);
@@ -250,7 +253,7 @@ describe('poller backoff and progress', () => {
   });
 
   it('doubles the wait after each failure and resets after a success', async () => {
-    let failing = true;
+    let failing = false;
     const api = fakeApi(() => (failing ? 'fail' : { statuses: [st('A', 'AVAILABLE', new Date().toISOString())] }));
     const errors: unknown[] = [];
     const poller = createStatusPoller({
@@ -261,26 +264,30 @@ describe('poller backoff and progress', () => {
       pageDelayMs: 0,
     });
     poller.start();
-    await vi.advanceTimersByTimeAsync(0); // t=0 fails
-    await vi.advanceTimersByTimeAsync(60_000); // t=60 fails
-    expect(api.calls).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(0); // t=0 full load succeeds
+    failing = true;
+    await vi.advanceTimersByTimeAsync(60_000); // t=60 change poll fails
+    await vi.advanceTimersByTimeAsync(60_000); // t=120 fails
+    expect(api.calls).toHaveLength(3);
     await vi.advanceTimersByTimeAsync(119_000);
-    expect(api.calls).toHaveLength(2);
-    await vi.advanceTimersByTimeAsync(1_000); // t=180 fails
     expect(api.calls).toHaveLength(3);
-    await vi.advanceTimersByTimeAsync(239_000);
-    expect(api.calls).toHaveLength(3);
-    failing = false;
-    await vi.advanceTimersByTimeAsync(1_000); // t=420 succeeds
+    await vi.advanceTimersByTimeAsync(1_000); // t=240 fails
     expect(api.calls).toHaveLength(4);
+    await vi.advanceTimersByTimeAsync(239_000);
+    expect(api.calls).toHaveLength(4);
+    failing = false;
+    await vi.advanceTimersByTimeAsync(1_000); // t=480 succeeds
+    expect(api.calls).toHaveLength(5);
     expect(errors).toHaveLength(3);
     await vi.advanceTimersByTimeAsync(60_000); // back to every 60 s
-    expect(api.calls).toHaveLength(5);
+    expect(api.calls).toHaveLength(6);
+    expect(api.calls.slice(1).every((c) => c.url.searchParams.has('modifiedAfter'))).toBe(true);
     poller.stop();
   });
 
   it('caps the backoff', async () => {
-    const api = fakeApi(() => 'fail');
+    let n = 0;
+    const api = fakeApi(() => (n++ === 0 ? { statuses: [st('A', 'AVAILABLE', new Date().toISOString())] } : 'fail'));
     const poller = createStatusPoller({
       fetch: api.fetchFn,
       visibility: fakeVisibility(),
@@ -289,9 +296,9 @@ describe('poller backoff and progress', () => {
       maxBackoffMs: 120_000,
     });
     poller.start();
-    await vi.advanceTimersByTimeAsync(0);
-    await vi.advanceTimersByTimeAsync(60_000 + 120_000 + 120_000 + 120_000);
-    // t = 0, 60, 180, 300, 420
+    await vi.advanceTimersByTimeAsync(0); // t=0 full load succeeds
+    await vi.advanceTimersByTimeAsync(60_000 + 60_000 + 120_000 + 120_000);
+    // t = 0, then failing polls at 60, 120, 240, 360
     expect(api.calls).toHaveLength(5);
     poller.stop();
   });
@@ -316,5 +323,81 @@ describe('poller backoff and progress', () => {
     await vi.advanceTimersByTimeAsync(60_000);
     expect(progress).toEqual([1, 2, 3]);
     poller.stop();
+  });
+});
+
+describe('page-wide safety cap', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-16T12:00:00Z'));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function make(fetchFn: FetchLike, onUpdate: (m: StatusMap) => void = () => {}) {
+    return createStatusPoller({ fetch: fetchFn, visibility: fakeVisibility(), onUpdate, pageDelayMs: 0 });
+  }
+
+  it('shares one budget between pollers: restarts reuse the data and wait their turn', async () => {
+    const api = fakeApi(() => ({ statuses: [st('A', 'AVAILABLE', new Date().toISOString())] }));
+    const first = make(api.fetchFn);
+    first.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(api.calls).toHaveLength(1);
+    first.stop();
+    // Many quick restarts, as a remounting app would cause.
+    const updates: StatusMap[] = [];
+    for (let i = 0; i < 20; i++) {
+      const p = make(api.fetchFn, (m) => updates.push(m));
+      p.start();
+      await vi.advanceTimersByTimeAsync(100);
+      p.stop();
+    }
+    expect(api.calls).toHaveLength(1);
+    // Each restart got the loaded statuses straight away.
+    expect(updates).toHaveLength(20);
+    expect(updates[0]?.get('A')?.status).toBe('AVAILABLE');
+    const last = make(api.fetchFn);
+    last.start();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(api.calls).toHaveLength(2);
+    expect(api.calls[1]?.url.searchParams.has('modifiedAfter')).toBe(true);
+    last.stop();
+  });
+
+  it('never starts more than one full load per five minutes, even after failures and restarts', async () => {
+    const api = fakeApi(() => 'fail');
+    for (let i = 0; i < 29; i++) {
+      const p = make(api.fetchFn);
+      p.start();
+      await vi.advanceTimersByTimeAsync(30_000);
+      p.stop();
+    }
+    // 14.5 minutes: full loads at 0, 5 and 10 minutes only.
+    expect(api.calls).toHaveLength(3);
+    expect(api.calls.every((c) => !c.url.searchParams.has('modifiedAfter'))).toBe(true);
+  });
+
+  it('two pollers running at once still poll once per minute in total', async () => {
+    const api = fakeApi(() => ({ statuses: [st('A', 'AVAILABLE', new Date().toISOString())] }));
+    const a = make(api.fetchFn);
+    const b = make(api.fetchFn);
+    a.start();
+    b.start();
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    // t = 0, 60, ..., 600
+    expect(api.calls).toHaveLength(11);
+    a.stop();
+    b.stop();
+  });
+
+  it('does not let a short interval option go below 60 s', async () => {
+    const api = fakeApi(() => ({ statuses: [] }));
+    const p = createStatusPoller({ fetch: api.fetchFn, visibility: fakeVisibility(), onUpdate: () => {}, pageDelayMs: 0, intervalMs: 1_000 });
+    p.start();
+    await vi.advanceTimersByTimeAsync(59_000);
+    expect(api.calls).toHaveLength(1);
+    p.stop();
   });
 });

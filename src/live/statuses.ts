@@ -109,24 +109,43 @@ export interface StatusPoller {
   stop(): void;
 }
 
+/** Hard limits shared by every poller on the page, so remounts and re-renders can't add requests. */
+export const FULL_LOAD_MIN_GAP_MS = 5 * 60_000;
+
+interface SharedState {
+  map: StatusMap;
+  loaded: boolean;
+  /** Start time of the last full (unfiltered) load. */
+  lastFull: number;
+  /** Start time of the last request batch of any kind. */
+  lastAny: number;
+}
+
+const shared: SharedState = { map: new Map(), loaded: false, lastFull: -Infinity, lastAny: -Infinity };
+
+/** Forgets the shared state. Only for tests. */
+export function resetStatusLimiter(): void {
+  shared.map = new Map();
+  shared.loaded = false;
+  shared.lastFull = -Infinity;
+  shared.lastAny = -Infinity;
+}
+
 /**
  * Loads all statuses once, then fetches changes every interval while the page is visible.
- * A new request batch never starts sooner than one interval after the previous one started.
- * After errors the wait doubles (60 s, 120 s, 240 s ...) up to maxBackoffMs.
+ * Across all pollers on the page: at most one request batch per interval, and at most one
+ * full load per FULL_LOAD_MIN_GAP_MS. After errors the wait doubles (60 s, 120 s ...) up to maxBackoffMs.
  */
 export function createStatusPoller(opts: PollerOptions): StatusPoller {
-  const interval = opts.intervalMs ?? POLL_INTERVAL_MS;
+  const interval = Math.max(opts.intervalMs ?? POLL_INTERVAL_MS, POLL_INTERVAL_MS);
   const pageDelay = opts.pageDelayMs ?? 300;
   const maxBackoff = opts.maxBackoffMs ?? 10 * 60_000;
   let failures = 0;
   const now = opts.now ?? (() => Date.now());
   const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-  let map: StatusMap = new Map();
-  let loaded = false;
   let running = false;
   let inFlight = false;
-  let lastStart = -Infinity;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let unsubscribe: (() => void) | null = null;
 
@@ -135,11 +154,16 @@ export function createStatusPoller(opts: PollerOptions): StatusPoller {
     timer = null;
   }
 
+  function earliestStart(): number {
+    const delay = failures === 0 ? interval : Math.min(interval * 2 ** (failures - 1), Math.max(interval, maxBackoff));
+    const next = shared.lastAny + delay;
+    return shared.loaded ? next : Math.max(next, shared.lastFull + FULL_LOAD_MIN_GAP_MS);
+  }
+
   function schedule(): void {
     clear();
     if (!running || inFlight || opts.visibility.isHidden()) return;
-    const delay = failures === 0 ? interval : Math.min(interval * 2 ** (failures - 1), Math.max(interval, maxBackoff));
-    const wait = Math.max(0, lastStart + delay - now());
+    const wait = Math.max(0, earliestStart() - now());
     timer = setTimeout(() => {
       timer = null;
       void tick();
@@ -148,19 +172,26 @@ export function createStatusPoller(opts: PollerOptions): StatusPoller {
 
   async function tick(): Promise<void> {
     if (!running || inFlight || opts.visibility.isHidden()) return;
+    // Another poller may have started a batch since this one was scheduled.
+    if (now() < earliestStart()) {
+      schedule();
+      return;
+    }
     inFlight = true;
-    lastStart = now();
+    const full = !shared.loaded;
+    const started = now();
+    shared.lastAny = started;
+    if (full) shared.lastFull = started;
     try {
-      const since = loaded ? latestModifiedAt(map) : null;
-      const statuses = await fetchStatuses(opts.fetch, since, pageDelay, sleep, loaded ? undefined : opts.onProgress);
-      if (!running) return;
-      map = mergeStatuses(map, statuses);
-      loaded = true;
+      const since = full ? null : latestModifiedAt(shared.map);
+      const statuses = await fetchStatuses(opts.fetch, since, pageDelay, sleep, full ? opts.onProgress : undefined);
+      shared.map = mergeStatuses(shared.map, statuses);
+      shared.loaded = true;
       failures = 0;
-      opts.onUpdate(map);
+      if (running) opts.onUpdate(shared.map);
     } catch (err) {
       failures++;
-      opts.onError?.(err);
+      if (running) opts.onError?.(err);
     } finally {
       inFlight = false;
       schedule();
@@ -175,6 +206,8 @@ export function createStatusPoller(opts: PollerOptions): StatusPoller {
         if (opts.visibility.isHidden()) clear();
         else schedule();
       });
+      // A remounted app gets the statuses it already has without a new request.
+      if (shared.loaded) opts.onUpdate(shared.map);
       schedule();
     },
     stop() {
