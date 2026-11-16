@@ -788,54 +788,6 @@ tbody th {
   display: none;
 }
 
-/* Map pins */
-
-.pin {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  color: var(--surface);
-  font-weight: 700;
-  font-size: 14px;
-  border: 2px solid var(--surface);
-  box-shadow: 0 0 0 1px var(--pin-ring);
-}
-
-.pin-yes {
-  background: var(--yes);
-  border-radius: 50%;
-}
-
-.pin-no {
-  background: var(--no);
-  border-radius: 3px;
-}
-
-.pin-unknown {
-  background: var(--unknown);
-  transform: rotate(45deg) scale(0.85);
-}
-
-.pin-unknown > span {
-  transform: rotate(-45deg);
-}
-
-.pin-selected {
-  box-shadow:
-    0 0 0 2px var(--surface),
-    0 0 0 5px var(--ink);
-}
-
-.pin-inline {
-  display: inline-flex;
-  width: 22px;
-  height: 22px;
-  font-size: 12px;
-}
-
-
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -1155,4 +1107,156 @@ tbody th {
   display: flex;
   flex-wrap: wrap;
   gap: var(--sp-2);
+}
+
+/* Map pins */
+
+.mp-wrap {
+  background: none;
+  border: 0;
+}
+
+.mp {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 7px 0 5px;
+  border: 1.5px solid var(--pin-ring);
+  border-radius: var(--r-pill);
+  background: var(--pin-bg);
+  color: var(--pin-ink);
+  box-shadow: var(--shadow-2);
+  font: 700 13px/1 var(--font);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  transition: transform var(--dur) var(--ease);
+  transform-origin: center;
+}
+
+.mp-dot {
+  width: 22px;
+  padding: 0;
+  justify-content: center;
+}
+
+.mp-shape {
+  display: block;
+  width: 10px;
+  height: 10px;
+  flex: none;
+}
+
+.mp-free .mp-shape {
+  background: var(--free);
+  border-radius: 50%;
+}
+
+.mp-busy .mp-shape {
+  background: var(--busy);
+  border-radius: 1px;
+}
+
+.mp-down .mp-shape {
+  background: var(--down);
+  border-radius: 1px;
+}
+
+.mp-unknown .mp-shape {
+  background: var(--unknown);
+  transform: rotate(45deg) scale(0.85);
+}
+
+.mp-hl {
+  transform: scale(1.12);
+  border-width: 2px;
+}
+
+.mp-selected {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  transform: scale(1.15);
+  box-shadow: 0 0 0 3px var(--surface), var(--shadow-3);
+}
+
+.mp-selected .mp-shape {
+  outline: 2px solid var(--accent-ink);
+}
+
+.mg {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--surface);
+  border: 2px solid var(--surface);
+  box-shadow: var(--shadow-2);
+  font: 700 13px/1 var(--font);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .leaflet-tile-pane {
+    filter: brightness(0.75) saturate(0.7);
+  }
+}
+
+:root[data-theme='dark'] .leaflet-tile-pane {
+  filter: brightness(0.75) saturate(0.7);
+}
+
+/* Bottom sheet on the phone map */
+
+.sheet {
+  position: absolute;
+  z-index: 1000;
+  left: var(--sp-3);
+  right: var(--sp-3);
+  bottom: var(--sp-3);
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-3);
+  animation: reveal var(--dur) var(--ease);
+}
+
+.sheet-top {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+}
+
+.sheet-top .card-title {
+  flex: 1;
+}
+
+.sheet-name {
+  font-size: var(--fs-base);
+}
+
+.sheet-close {
+  min-height: 40px;
+  min-width: 40px;
+  padding: 0;
+}
+
+.sheet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.leaflet-container {
+  font-family: var(--font);
+}
+
+.mg.mp-hl {
+  box-shadow: 0 0 0 3px var(--accent), var(--shadow-2);
 }

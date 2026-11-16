@@ -3,6 +3,7 @@ import { ChargeBar } from './components/ChargeBar.tsx';
 import { Header } from './components/Header.tsx';
 import { ListIcon, MapIcon } from './components/Icons.tsx';
 import { BestCard } from './components/BestCard.tsx';
+import { BottomCard } from './components/BottomCard.tsx';
 import { ResultCard } from './components/ResultCard.tsx';
 import type { MapViewProps } from './components/MapView.tsx';
 import { DEFAULT_POINT } from './data/regions.ts';
@@ -162,6 +163,7 @@ export function App({
   const announcement = useAnnouncement(countText, filterKey, announceDelayMs);
 
   const visible = results ? results.slice(0, shown) : [];
+  const selectedResult = selectedId ? (results?.find((r) => r.charger.id === selectedId) ?? null) : null;
   const best = results
     ? pickBest(results, statuses !== null, { fastOnly: settings.fastOnly, connector: settings.connector })
     : null;
@@ -373,8 +375,23 @@ export function App({
         {showMap && MapComponent && (
           <section className="map-pane" aria-label="Map">
             <Suspense fallback={<p className="muted map-loading">Loading map…</p>}>
-              <MapComponent results={visible} selectedId={selectedId} onSelect={onMarkerSelect} reducedMotion={reducedMotion} />
+              <MapComponent
+                results={visible}
+                selectedId={selectedId}
+                highlightedId={highlightedId}
+                onSelect={onMarkerSelect}
+                reducedMotion={reducedMotion}
+                fitKey={filterKey}
+                resetKey={settings.region}
+              />
             </Suspense>
+            {!wide && selectedResult && (
+              <BottomCard
+                result={selectedResult}
+                onShowInList={() => showCard(selectedResult.charger.id)}
+                onClose={() => setSelectedId(null)}
+              />
+            )}
           </section>
         )}
       </div>
