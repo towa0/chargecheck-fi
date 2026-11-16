@@ -85,10 +85,39 @@ const baseStatuses = (): ApiStatus[] => [
   { evseId: 'B1', status: 'AVAILABLE', modifiedAt: hoursAgo(30), lastUpdatedAt: hoursAgo(30) },
 ];
 
-function renderApp(statusFetch: FetchLike | null = statusesFetch(baseStatuses)) {
+function renderApp(statusFetch: FetchLike | null = statusesFetch(baseStatuses), storage: Storage | null = null) {
   return render(
-    <App data={data} statusFetch={statusFetch} visibility={visible} now={() => NOW} mapView={null} announceDelayMs={50} geolocation={null} />,
+    <App
+      data={data}
+      statusFetch={statusFetch}
+      visibility={visible}
+      now={() => NOW}
+      mapView={null}
+      announceDelayMs={50}
+      geolocation={null}
+      storage={storage}
+    />,
   );
+}
+
+const FAST = 'Fast only (50 kW or more)';
+
+type User = ReturnType<typeof userEvent.setup>;
+
+async function pickConnector(user: User, label: string) {
+  await user.click(screen.getByRole('button', { name: /^Connector:/ }));
+  await user.click(screen.getByRole('radio', { name: label }));
+}
+
+async function setCustomEnergy(user: User, value: string) {
+  if (!screen.queryByLabelText('Energy to add (kWh)')) {
+    if (!screen.queryByRole('radio', { name: 'Custom' })) await user.click(screen.getByRole('button', { name: /^Energy:/ }));
+    await user.click(screen.getByRole('radio', { name: 'Custom' }));
+  }
+  const input = screen.getByLabelText('Energy to add (kWh)');
+  await user.clear(input);
+  if (value) await user.type(input, value);
+  return input;
 }
 
 function names(): string[] {
@@ -131,23 +160,22 @@ describe('App', () => {
     const user = userEvent.setup();
     renderApp();
     await screen.findByText('Alpha AC');
-    await user.click(screen.getByLabelText('Fast chargers only (50 kW or more)'));
+    await user.click(screen.getByLabelText(FAST));
     expect(names()).toEqual(['Bravo DC', 'Delta congestion']);
-    await user.click(screen.getByLabelText('Fast chargers only (50 kW or more)'));
-    await user.selectOptions(screen.getByLabelText('Connector'), 'IEC_62196_T2');
+    await user.click(screen.getByLabelText(FAST));
+    await pickConnector(user, 'Type 2');
     expect(names()).toEqual(['Alpha AC', 'Charlie no price']);
+    expect(screen.getByRole('button', { name: 'Connector: Type 2' })).toBeInTheDocument();
   });
 
   it('recomputes the estimate when energy changes and flags bad input', async () => {
     const user = userEvent.setup();
     renderApp();
     await screen.findByText('Alpha AC');
-    const energy = screen.getByLabelText('Energy to add (kWh)');
-    await user.clear(energy);
-    await user.type(energy, '10');
+    await setCustomEnergy(user, '10');
     // 10 * 0.20 * 1.255
     expect(within(card('Alpha AC')).getByText('€2.51', { selector: '.cost-value' })).toBeInTheDocument();
-    await user.clear(energy);
+    const energy = await setCustomEnergy(user, '');
     expect(screen.getByText('Enter a number from 1 to 200.')).toBeInTheDocument();
     expect(energy).toHaveAttribute('aria-invalid', 'true');
     // Keeps the last valid estimate.
@@ -195,6 +223,77 @@ describe('App', () => {
   });
 });
 
+describe('charge bar', () => {
+  it('works with the keyboard alone', async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await screen.findByText('Alpha AC');
+    const energyChip = screen.getByRole('button', { name: 'Energy: 30 kWh' });
+    energyChip.focus();
+    await user.keyboard('{Enter}');
+    expect(energyChip).toHaveAttribute('aria-expanded', 'true');
+    // Focus lands on the selected preset; arrow keys change it without closing the panel.
+    expect(screen.getByRole('radio', { name: '30 kWh' })).toHaveFocus();
+    await user.keyboard('{ArrowRight}');
+    expect(screen.getByRole('radio', { name: '50 kWh' })).toBeChecked();
+    expect(energyChip).toHaveAttribute('aria-expanded', 'true');
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('button', { name: 'Energy: 50 kWh' })).toHaveFocus();
+    expect(screen.queryByRole('radio', { name: '50 kWh' })).not.toBeInTheDocument();
+    // 50 * 0.20 * 1.255
+    expect(within(card('Alpha AC')).getByText('€12.55', { selector: '.cost-value' })).toBeInTheDocument();
+
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'Start: Now' })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole('button', { name: /^Connector:/ })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByLabelText(FAST)).toHaveFocus();
+    await user.keyboard(' ');
+    expect(screen.getByLabelText(FAST)).toBeChecked();
+    expect(names()).toEqual(['Bravo DC', 'Delta congestion']);
+  });
+
+  it('closes a panel with Done and on a pointer pick', async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await screen.findByText('Alpha AC');
+    await user.click(screen.getByRole('button', { name: 'Start: Now' }));
+    await user.click(screen.getByRole('radio', { name: 'Tonight 22:00' }));
+    expect(screen.queryByRole('radio', { name: 'Now' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start: Tonight 22:00' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Start: Tonight 22:00' }));
+    await user.click(screen.getByRole('button', { name: 'Done' }));
+    expect(screen.queryByRole('radio', { name: 'Now' })).not.toBeInTheDocument();
+  });
+
+  it('remembers the last settings', async () => {
+    const user = userEvent.setup();
+    const m = new Map<string, string>();
+    const storage = {
+      getItem: (k: string) => m.get(k) ?? null,
+      setItem: (k: string, v: string) => void m.set(k, v),
+    } as unknown as Storage;
+    const first = renderApp(statusesFetch(baseStatuses), storage);
+    await screen.findByText('Alpha AC');
+    await user.click(screen.getByRole('button', { name: 'Energy: 30 kWh' }));
+    await user.click(screen.getByRole('radio', { name: '10 kWh' }));
+    await user.click(screen.getByLabelText(FAST));
+    first.unmount();
+    renderApp(statusesFetch(baseStatuses), storage);
+    expect(screen.getByRole('button', { name: 'Energy: 10 kWh' })).toBeInTheDocument();
+    expect(screen.getByLabelText(FAST)).toBeChecked();
+  });
+
+  it('switches region from the header', async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await screen.findByText('Alpha AC');
+    await user.click(screen.getByRole('radio', { name: 'Finland' }));
+    await waitFor(() => expect(screen.getByText(/found in Finland/)).toBeInTheDocument());
+  });
+});
+
 describe('live region', () => {
   it('announces the result count once filters settle, not on every change', async () => {
     const user = userEvent.setup();
@@ -206,8 +305,8 @@ describe('live region', () => {
     const observer = new MutationObserver(() => changes.push(region.textContent ?? ''));
     observer.observe(region, { childList: true, subtree: true, characterData: true });
 
-    await user.click(screen.getByLabelText('Fast chargers only (50 kW or more)'));
-    await user.selectOptions(screen.getByLabelText('Connector'), 'IEC_62196_T2_COMBO');
+    await user.click(screen.getByLabelText(FAST));
+    await pickConnector(user, 'CCS');
     await waitFor(() => expect(region).toHaveTextContent('2 chargers found in Oulu.'));
     observer.disconnect();
     // Two quick changes produce one announcement.
