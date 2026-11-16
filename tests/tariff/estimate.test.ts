@@ -131,7 +131,8 @@ describe('OCPI step size examples', () => {
   it('free parking example: 19:40, 12 min charging, 20 min parking costs 0.73', () => {
     const r = ok(estimate(STEP_EXAMPLE, session(2, 10, at(2026, 11, 16, 19, 40), 20)));
     expect(r.totalInclVat).toBeCloseTo(0.73, 10);
-    expect(r.assumptions.join(' ')).toMatch(/12 min of this session no parking time price/);
+    // Free parking after 20:00 is by design, so no warning about it.
+    expect(r.assumptions.join(' ')).not.toMatch(/no .* price in the tariff applies/);
   });
 });
 

@@ -62,7 +62,8 @@ describe('real tariffs', () => {
     // TIME from 19:00 (6 h) to 20:00 (window ends): 1 h * 0.954 * 1.255 = 1.19727. Total 8.2323231
     const r = ok(estimate(fixture('dayNightWithDaytimeIdleFee'), session(30, 3.7, TUE(13))));
     expect(r.totalInclVat).toBeCloseTo(8.2323231, 6);
-    expect(r.assumptions.join(' ')).toMatch(/no charging time price in the tariff applies/);
+    // The idle fee ending at 20:00 is by design, so no gap warning.
+    expect(r.assumptions.join(' ')).not.toMatch(/price in the tariff applies/);
   });
 
   it('time and parking fee after 45 min', () => {

@@ -348,8 +348,8 @@ function run(tariff: Tariff, session: Session): Estimate {
       const quantity = amounts[dim];
       if (quantity <= 0) continue;
       if (!component) {
-        // No match means no cost for this dimension, per spec.
-        if (usedDims.has(dim)) unpriced.set(dim, (unpriced.get(dim) ?? 0) + hours);
+        // No match means no cost, per spec. Time fees often start late on purpose, so only energy gaps are flagged.
+        if (dim === 'ENERGY' && usedDims.has(dim)) unpriced.set(dim, (unpriced.get(dim) ?? 0) + hours);
         continue;
       }
       const prev = periods.findLast((p) => p.dim === dim);
@@ -404,10 +404,10 @@ function run(tariff: Tariff, session: Session): Estimate {
   if (taxIncluded === 'NO') assumptions.push('The tariff lists prices without VAT. VAT is added at the rate it gives.');
   if (taxIncluded === 'YES') assumptions.push('The tariff lists prices with VAT included.');
   if (taxIncluded === 'N/A') assumptions.push('The tariff says no tax applies.');
-  for (const [dim, hours] of unpriced) {
-    const what = dim === 'ENERGY' ? 'energy' : dim === 'TIME' ? 'charging time' : 'parking time';
+  for (const hours of unpriced.values()) {
+    if (hours * 3600 < 1) continue;
     assumptions.push(
-      `For ${formatMinutes(hours)} of this session no ${what} price in the tariff applies. ` +
+      `For ${formatMinutes(hours)} of this session no energy price in the tariff applies. ` +
         'OCPI counts that as free, so the real cost may be higher.',
     );
   }
