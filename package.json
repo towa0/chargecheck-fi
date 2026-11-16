@@ -10,7 +10,8 @@
     "test": "vitest run",
     "typecheck": "tsc",
     "probe": "tsx scripts/probe.ts",
-    "data": "tsx scripts/build-data.ts"
+    "data": "tsx scripts/build-data.ts",
+    "contrast": "tsx scripts/contrast.ts"
   },
   "dependencies": {
     "leaflet": "^1.9.4",
