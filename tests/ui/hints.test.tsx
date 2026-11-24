@@ -62,11 +62,11 @@ const visible: Visibility = { isHidden: () => false, subscribe: () => () => {} }
 describe('cheaper later hint', () => {
   it('shows the saving for a day/night tariff on the card and the best card, not for a flat price', async () => {
     render(
-      <App data={data} statusFetch={statusFetch} visibility={visible} now={() => NOW} mapView={null} announceDelayMs={10} geolocation={null} storage={null} />,
+      <App lang="en" data={data} statusFetch={statusFetch} visibility={visible} now={() => NOW} mapView={null} announceDelayMs={10} geolocation={null} storage={null} />,
     );
     // 30 kWh at 11 kW from 14:00 is all at 0.28 = 8.40; from 21:00 all at 0.19 = 5.70.
     const card = await screen.findByRole('article', { name: 'Day night place' });
-    expect(within(card).getByText(/€2\.70 cheaper from 21:00/)).toBeInTheDocument();
+    expect(within(card).getByText(/2,70 € cheaper from 21:00/)).toBeInTheDocument();
     expect(screen.getByRole('article', { name: 'Flat place' })).not.toHaveTextContent('cheaper');
     const best = screen.getByRole('region', { name: 'Best right now' });
     await waitFor(() => expect(best).toHaveTextContent('Flat place'));
@@ -78,11 +78,11 @@ describe('cheaper later on the best card', () => {
   it('shows the hint prominently when the best charger has one', async () => {
     const only: DataSource = { ...data, region: async (id) => ({ region: id, chargers: [chargers[0]!] }) };
     render(
-      <App data={only} statusFetch={statusFetch} visibility={visible} now={() => NOW} mapView={null} announceDelayMs={10} geolocation={null} storage={null} />,
+      <App lang="en" data={only} statusFetch={statusFetch} visibility={visible} now={() => NOW} mapView={null} announceDelayMs={10} geolocation={null} storage={null} />,
     );
     const best = await screen.findByRole('region', { name: 'Best right now' });
     await waitFor(() => expect(best).toHaveTextContent('Day night place'));
-    expect(within(best).getByText('€2.70 cheaper from 21:00')).toHaveClass('hint-strong');
+    expect(within(best).getByText('2,70 € cheaper from 21:00')).toHaveClass('hero-hint');
     expect(best).toHaveTextContent('Estimated from the published tariff.');
   });
 });

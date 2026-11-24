@@ -96,7 +96,7 @@ afterEach(() => {
 
 function renderApp() {
   return render(
-    <App
+    <App lang="en"
       data={data}
       statusFetch={statusFetch}
       visibility={visible}
@@ -139,8 +139,8 @@ describe('list and map sync on wide screens', () => {
     renderApp();
     await screen.findByRole('article', { name: 'Charlie' });
     await user.click(screen.getByRole('button', { name: 'pin Charlie' }));
-    expect(card('Charlie')).toHaveClass('card-selected');
-    expect(card('Alpha')).not.toHaveClass('card-selected');
+    expect(card('Charlie')).toHaveClass('row-selected');
+    expect(card('Alpha')).not.toHaveClass('row-selected');
     expect(scrollIntoView).toHaveBeenCalled();
     expect(card('Charlie')).toHaveFocus();
     expect(last().selectedId).toBe('c');
@@ -150,7 +150,7 @@ describe('list and map sync on wide screens', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderApp();
-    await waitFor(() => expect(card('Alpha')).toHaveTextContent('1 of 1 free'));
+    await waitFor(() => expect(card('Alpha')).toHaveTextContent('Free'));
     const before = last().fitKey;
     await act(async () => {
       await vi.advanceTimersByTimeAsync(60_000);
@@ -166,39 +166,48 @@ describe('list and map sync on wide screens', () => {
 describe('list and map on phones', () => {
   beforeEach(() => setWide(false));
 
-  it('loads the map only when the Map view is chosen', async () => {
-    const user = userEvent.setup();
+  const sheet = () => document.querySelector('.sheet') as HTMLElement;
+  const handle = () => screen.getByRole('button', { name: /^Charger list:/ });
+
+  it('shows the map full screen with the list in a bottom sheet that starts as a peek', async () => {
     renderApp();
     await screen.findByRole('article', { name: 'Alpha' });
-    expect(screen.queryByTestId('fake-map')).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Map' }));
-    expect(screen.getByRole('button', { name: 'Map' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByTestId('fake-map')).toBeInTheDocument();
-    expect(document.getElementById('results')).not.toBeVisible();
+    expect(sheet()).toHaveClass('sheet-peek');
+    expect(sheet()).toContainElement(document.getElementById('results'));
   });
 
-  it('shows a bottom card for the tapped pin and can jump to it in the list', async () => {
+  it('moves the sheet between peek, half and full with the handle and arrow keys', async () => {
     const user = userEvent.setup();
     renderApp();
     await screen.findByRole('article', { name: 'Alpha' });
-    await user.click(screen.getByRole('button', { name: 'Map' }));
+    await user.click(handle());
+    expect(sheet()).toHaveClass('sheet-half');
+    await user.click(handle());
+    expect(sheet()).toHaveClass('sheet-full');
+    await user.click(handle());
+    expect(sheet()).toHaveClass('sheet-peek');
+    handle().focus();
+    await user.keyboard('{ArrowUp}');
+    expect(sheet()).toHaveClass('sheet-half');
+    await user.keyboard('{ArrowDown}');
+    expect(sheet()).toHaveClass('sheet-peek');
+  });
+
+  it('tapping a pin raises the sheet to half height and selects the row', async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await screen.findByRole('article', { name: 'Alpha' });
     await user.click(screen.getByRole('button', { name: 'pin Bravo' }));
-    const sheet = screen.getByRole('region', { name: 'Selected charger: Bravo' });
-    expect(sheet).toHaveTextContent('€9.00');
-    expect(sheet).toHaveTextContent('150 kW DC');
-    await user.click(within(sheet).getByRole('button', { name: 'Show in list' }));
-    expect(screen.queryByTestId('fake-map')).not.toBeInTheDocument();
+    expect(sheet()).toHaveClass('sheet-half');
+    expect(card('Bravo')).toHaveClass('row-selected');
     await waitFor(() => expect(card('Bravo')).toHaveFocus());
-    expect(within(card('Bravo')).getByRole('button', { name: 'Details: Bravo' })).toHaveAttribute('aria-expanded', 'true');
+    expect(scrollIntoView).toHaveBeenCalled();
   });
 
-  it('closes the bottom card', async () => {
-    const user = userEvent.setup();
+  it('marks the cheapest free charger for the map', async () => {
     renderApp();
     await screen.findByRole('article', { name: 'Alpha' });
-    await user.click(screen.getByRole('button', { name: 'Map' }));
-    await user.click(screen.getByRole('button', { name: 'pin Alpha' }));
-    await user.click(screen.getByRole('button', { name: 'Close' }));
-    expect(screen.queryByRole('region', { name: /Selected charger/ })).not.toBeInTheDocument();
+    await waitFor(() => expect(last().bestId).toBe('a'));
   });
 });

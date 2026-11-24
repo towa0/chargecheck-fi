@@ -1,16 +1,10 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useI18n } from '../i18n/index.tsx';
+import { startLabel } from '../i18n/present.ts';
 import { STANDARD_LABELS } from '../logic/format.ts';
-import {
-  ENERGY_MAX,
-  ENERGY_MIN,
-  ENERGY_PRESETS,
-  parseEnergy,
-  timeLabel,
-  type Settings,
-  type TimeMode,
-} from '../logic/settings.ts';
+import { ENERGY_MAX, ENERGY_MIN, ENERGY_PRESETS, parseEnergy, type Settings, type TimeMode } from '../logic/settings.ts';
 import { toLocalInputValue } from '../tariff/time.ts';
-import { ChevronIcon } from './Icons.tsx';
+import { BoltIcon, ChevronIcon, ConnectorIcon } from './Icons.tsx';
 
 type PanelId = 'energy' | 'time' | 'connector';
 
@@ -20,8 +14,9 @@ interface Props {
   now: number;
 }
 
-/** "Add [30 kWh] · [Now] · [Any connector] · [Fast only]", each chip opening native controls. */
+/** Compact filter bar: energy, start time, connector and fast-only. Scrolls sideways on narrow screens. */
 export function ChargeBar({ settings, onChange, now }: Props) {
+  const { t, fmt } = useI18n();
   const [open, setOpen] = useState<PanelId | null>(null);
   const root = useRef<HTMLDivElement>(null);
   const chips = useRef(new Map<PanelId, HTMLButtonElement>());
@@ -42,10 +37,10 @@ export function ChargeBar({ settings, onChange, now }: Props) {
     return () => document.removeEventListener('pointerdown', onDown);
   }, [open]);
 
-  const chip = (id: PanelId, label: string, a11y: string) => (
+  const chip = (id: PanelId, label: string, a11y: string, active: boolean) => (
     <button
       type="button"
-      className="chip"
+      className={['chip', active ? 'chip-active' : '', open === id ? 'chip-open' : ''].filter(Boolean).join(' ')}
       aria-expanded={open === id}
       aria-controls={`panel-${id}`}
       ref={(el) => {
@@ -53,7 +48,7 @@ export function ChargeBar({ settings, onChange, now }: Props) {
       }}
       onClick={() => setOpen(open === id ? null : id)}
     >
-      <span className="visually-hidden">{a11y}:</span> <span className="chip-value">{label}</span>
+      <span className="visually-hidden">{a11y}:</span> <span className="chip-value num">{label}</span>
       <ChevronIcon className="chip-chevron" width={14} height={14} />
     </button>
   );
@@ -63,9 +58,11 @@ export function ChargeBar({ settings, onChange, now }: Props) {
     if (e.detail > 0) close(false);
   };
 
+  const connectorLabel = settings.connector ? (STANDARD_LABELS[settings.connector] ?? settings.connector) : t.filters.anyConnector;
+
   return (
     <div
-      className="chargebar"
+      className="filterbar"
       ref={root}
       onKeyDown={(e) => {
         if (e.key === 'Escape' && open) {
@@ -74,21 +71,19 @@ export function ChargeBar({ settings, onChange, now }: Props) {
         }
       }}
     >
-      <p className="chargebar-line" id="chargebar-label">
-        <span className="chargebar-word">Add</span>
-        {chip('energy', `${formatKwh(settings.energyKWh)} kWh`, 'Energy')}
-        <span className="dot" aria-hidden="true">·</span>
-        {chip('time', timeLabel(settings, now), 'Start')}
-        <span className="dot" aria-hidden="true">·</span>
-        {chip('connector', settings.connector ? (STANDARD_LABELS[settings.connector] ?? settings.connector) : 'Any connector', 'Connector')}
-        <span className="dot" aria-hidden="true">·</span>
-        <label className="chip chip-toggle">
+      <div className="filterbar-scroll" role="group" aria-label={t.filters.label}>
+        {chip('energy', fmt.kwh(settings.energyKWh), t.filters.energy, false)}
+        {chip('time', startLabel(t, fmt, settings, now), t.filters.start, settings.timeMode !== 'now')}
+        {chip('connector', connectorLabel, t.filters.connector, settings.connector !== '')}
+        <label className={settings.fastOnly ? 'chip chip-toggle chip-active' : 'chip chip-toggle'}>
           <input type="checkbox" checked={settings.fastOnly} onChange={(e) => set({ fastOnly: e.target.checked })} />
+          <BoltIcon width={13} height={13} />
           <span>
-            Fast only<span className="visually-hidden"> (50 kW or more)</span>
+            {t.filters.fastOnly}
+            <span className="visually-hidden">{t.filters.fastOnlyHint}</span>
           </span>
         </label>
-      </p>
+      </div>
 
       {open === 'energy' && (
         <Panel id="energy" onDone={() => close()}>
@@ -103,20 +98,25 @@ export function ChargeBar({ settings, onChange, now }: Props) {
       {open === 'connector' && (
         <Panel id="connector" onDone={() => close()}>
           <fieldset className="choices">
-            <legend>Connector</legend>
-            {[['', 'Any connector'] as const, ...Object.entries(STANDARD_LABELS)].map(([value, label]) => (
-              <label key={value} className="choice">
-                <input
-                  type="radio"
-                  name="connector"
-                  value={value}
-                  checked={settings.connector === value}
-                  onChange={() => set({ connector: value })}
-                  onClick={pick}
-                />
-                <span>{label}</span>
-              </label>
-            ))}
+            <legend>{t.filters.connector}</legend>
+            <div className="connector-choices">
+              {[['', t.filters.anyConnector] as const, ...Object.entries(STANDARD_LABELS)].map(([value, label]) => (
+                <label key={value} className="choice">
+                  <input
+                    type="radio"
+                    name="connector"
+                    value={value}
+                    checked={settings.connector === value}
+                    onChange={() => set({ connector: value })}
+                    onClick={pick}
+                  />
+                  <span>
+                    {value && <ConnectorIcon standard={value} />}
+                    {label}
+                  </span>
+                </label>
+              ))}
+            </div>
           </fieldset>
         </Panel>
       )}
@@ -124,11 +124,8 @@ export function ChargeBar({ settings, onChange, now }: Props) {
   );
 }
 
-function formatKwh(n: number): string {
-  return Number.isInteger(n) ? String(n) : n.toFixed(1);
-}
-
 function Panel({ id, children, onDone }: { id: PanelId; children: ReactNode; onDone: () => void }) {
+  const { t } = useI18n();
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     // Move focus into the panel so keyboard users land on the first control.
@@ -137,16 +134,17 @@ function Panel({ id, children, onDone }: { id: PanelId; children: ReactNode; onD
     first?.focus();
   }, []);
   return (
-    <div className="popover" id={`panel-${id}`} ref={ref}>
+    <div className="panel" id={`panel-${id}`} ref={ref}>
       {children}
-      <button type="button" className="btn btn-quiet popover-done" onClick={onDone}>
-        Done
+      <button type="button" className="btn btn-quiet panel-done" onClick={onDone}>
+        {t.filters.done}
       </button>
     </div>
   );
 }
 
 function EnergyPanel({ value, onChange, onPick }: { value: number; onChange: (n: number) => void; onPick: (e: { detail: number }) => void }) {
+  const { t, fmt } = useI18n();
   const isPreset = (ENERGY_PRESETS as readonly number[]).includes(value);
   const [custom, setCustom] = useState(isPreset ? '' : String(value));
   const [customMode, setCustomMode] = useState(!isPreset);
@@ -155,7 +153,7 @@ function EnergyPanel({ value, onChange, onPick }: { value: number; onChange: (n:
   const valid = !customMode || parseEnergy(custom) !== null;
   return (
     <fieldset className="choices">
-      <legend>Energy to add</legend>
+      <legend>{t.filters.energyToAdd}</legend>
       <div className="segmented">
         {ENERGY_PRESETS.map((p) => (
           <label key={p} className="seg">
@@ -169,17 +167,17 @@ function EnergyPanel({ value, onChange, onPick }: { value: number; onChange: (n:
               }}
               onClick={onPick}
             />
-            <span>{p} kWh</span>
+            <span className="num">{fmt.kwh(p)}</span>
           </label>
         ))}
         <label className="seg">
           <input type="radio" name="energy" checked={customMode} onChange={() => setCustomMode(true)} />
-          <span>Custom</span>
+          <span>{t.filters.custom}</span>
         </label>
       </div>
       {customMode && (
         <div className="field">
-          <label htmlFor={inputId}>Energy to add (kWh)</label>
+          <label htmlFor={inputId}>{t.filters.customEnergy}</label>
           <input
             id={inputId}
             type="number"
@@ -198,7 +196,7 @@ function EnergyPanel({ value, onChange, onPick }: { value: number; onChange: (n:
           />
           {!valid && (
             <p id={errorId} className="field-error">
-              Enter a number from {ENERGY_MIN} to {ENERGY_MAX}.
+              {t.filters.energyError(ENERGY_MIN, ENERGY_MAX)}
             </p>
           )}
         </div>
@@ -218,15 +216,16 @@ function TimePanel({
   onChange: (p: Partial<Settings>) => void;
   onPick: (e: { detail: number }) => void;
 }) {
+  const { t, fmt } = useI18n();
   const inputId = useId();
   const modes: [TimeMode, string][] = [
-    ['now', 'Now'],
-    ['tonight', timeLabel({ timeMode: 'tonight', customStart: '' }, now)],
-    ['custom', 'Custom'],
+    ['now', t.filters.now],
+    ['tonight', startLabel(t, fmt, { timeMode: 'tonight', customStart: '' }, now)],
+    ['custom', t.filters.custom],
   ];
   return (
     <fieldset className="choices">
-      <legend>Start charging</legend>
+      <legend>{t.filters.startCharging}</legend>
       <div className="segmented">
         {modes.map(([mode, label]) => (
           <label key={mode} className="seg">
@@ -243,13 +242,13 @@ function TimePanel({
               }
               onClick={mode === 'custom' ? undefined : onPick}
             />
-            <span>{label}</span>
+            <span className="num">{label}</span>
           </label>
         ))}
       </div>
       {settings.timeMode === 'custom' && (
         <div className="field">
-          <label htmlFor={inputId}>Start time (Finnish time)</label>
+          <label htmlFor={inputId}>{t.filters.startTime}</label>
           <input
             id={inputId}
             type="datetime-local"
