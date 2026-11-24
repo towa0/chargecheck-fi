@@ -1,10 +1,11 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
 import { ChargeBar } from './components/ChargeBar.tsx';
 import { Header } from './components/Header.tsx';
-import { ListIcon, MapIcon } from './components/Icons.tsx';
 import { BestCard } from './components/BestCard.tsx';
-import { BottomCard } from './components/BottomCard.tsx';
+import { BottomSheet, type SheetState } from './components/BottomSheet.tsx';
 import { ResultCard } from './components/ResultCard.tsx';
+import { formatBuilt } from './i18n/format.ts';
+import { I18nProvider, loadLang, saveLang, useI18n, type Lang } from './i18n/index.tsx';
 import type { MapViewProps } from './components/MapView.tsx';
 import { DEFAULT_POINT } from './data/regions.ts';
 import { httpDataSource, type DataSource } from './data/source.ts';
@@ -16,11 +17,12 @@ import { documentVisibility, type FetchLike, type Visibility } from './live/stat
 import { buildResults, type EstimateCache, type Point, type SortKey } from './logic/results.ts';
 import { pickBest, type BestPick } from './logic/best.ts';
 import { cheaperHint, type HintCache } from './logic/hints.ts';
-import { loadSettings, resolveStart, saveSettings, timeLabel, type Settings } from './logic/settings.ts';
+import { loadSettings, resolveStart, saveSettings, type Settings } from './logic/settings.ts';
+import { availabilityKind } from './logic/status.ts';
 
 const PAGE_SIZE = 50;
 const REPO_URL = 'https://github.com/towa0/chargecheck-fi';
-const WIDE = '(min-width: 60em)';
+const WIDE = '(min-width: 48em)';
 const LazyMap = lazy(() => import('./components/MapView.tsx'));
 
 export interface AppProps {
@@ -34,6 +36,8 @@ export interface AppProps {
   announceDelayMs?: number;
   geolocation?: Geolocation | null;
   storage?: Storage | null;
+  /** Start language. Defaults to the saved choice, then Finnish. */
+  lang?: Lang;
 }
 
 function prefersReducedMotion(): boolean {
@@ -60,7 +64,28 @@ function defaultVisibility(): Visibility | null {
   return sharedVisibility;
 }
 
-export function App({
+export function App(props: AppProps) {
+  const storage = props.storage === undefined ? defaultStorage() : props.storage;
+  const [lang, setLangState] = useState<Lang>(() => props.lang ?? loadLang(storage));
+  const setLang = useCallback(
+    (next: Lang) => {
+      setLangState(next);
+      saveLang(storage, next);
+    },
+    [storage],
+  );
+  useEffect(() => {
+    document.documentElement.lang = lang;
+  }, [lang]);
+  return (
+    <I18nProvider lang={lang}>
+      <Shell {...props} storage={storage} onLang={setLang} />
+    </I18nProvider>
+  );
+}
+
+function Shell({
+  onLang,
   data = httpDataSource,
   statusFetch = defaultFetch,
   visibility = defaultVisibility(),
@@ -69,12 +94,13 @@ export function App({
   announceDelayMs = 1000,
   geolocation = typeof navigator !== 'undefined' && 'geolocation' in navigator ? navigator.geolocation : null,
   storage = defaultStorage(),
-}: AppProps) {
+}: AppProps & { onLang: (lang: Lang) => void }) {
+  const { t } = useI18n();
   const [settings, setSettingsState] = useState<Settings>(() => loadSettings(storage));
   const [meta, setMeta] = useState<Meta | null>(null);
   const [tariffs, setTariffs] = useState<TariffFile | null>(null);
   const [regions, setRegions] = useState<Record<string, RegionFile>>({});
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState(false);
   const [point, setPoint] = useState<Point>(DEFAULT_POINT);
   const [pointIsUser, setPointIsUser] = useState(false);
   const [locating, setLocating] = useState(false);
@@ -83,7 +109,7 @@ export function App({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
-  const [view, setView] = useState<'list' | 'map'>('list');
+  const [sheet, setSheet] = useState<SheetState>('peek');
   const [clock, setClock] = useState(now);
   const wide = useMediaQuery(WIDE);
   const reducedMotion = useMemo(prefersReducedMotion, []);
@@ -105,7 +131,7 @@ export function App({
   useEffect(() => {
     if (dataReady) setStatusesStarted(true);
   }, [dataReady]);
-  const { statuses, error: statusError, pages: statusPages } = useStatuses(statusesStarted ? statusFetch : null, visibility);
+  const { statuses, error: statusError } = useStatuses(statusesStarted ? statusFetch : null, visibility);
 
   useEffect(() => {
     let cancelled = false;
@@ -115,7 +141,7 @@ export function App({
         setMeta(m);
         setTariffs(t);
       })
-      .catch(() => !cancelled && setLoadError('The charger data could not be loaded. Try reloading the page.'));
+      .catch(() => !cancelled && setLoadError(true));
     return () => {
       cancelled = true;
     };
@@ -127,7 +153,7 @@ export function App({
     data
       .region(settings.region)
       .then((r) => !cancelled && setRegions((prev) => ({ ...prev, [settings.region]: r })))
-      .catch(() => !cancelled && setLoadError('The charger data could not be loaded. Try reloading the page.'));
+      .catch(() => !cancelled && setLoadError(true));
     return () => {
       cancelled = true;
     };
@@ -174,10 +200,8 @@ export function App({
   useEffect(() => setShown(PAGE_SIZE), [filterKey]);
 
   const count = results?.length ?? 0;
-  // Status pages hold 500 locations each, nationwide.
-  const expectedPages = Math.max(1, Math.ceil((meta?.counts.locations ?? 3800) / 500));
-  const regionLabel = meta?.regions[settings.region]?.label ?? settings.region;
-  const countText = results ? `${count} ${count === 1 ? 'charger' : 'chargers'} found in ${regionLabel}.` : '';
+  const regionLabel = t.regions[settings.region] ?? meta?.regions[settings.region]?.label ?? settings.region;
+  const countText = results ? t.list.found(count, regionLabel) : '';
   const announcement = useAnnouncement(countText, filterKey, announceDelayMs);
 
   const visible = results ? results.slice(0, shown) : [];
@@ -186,16 +210,20 @@ export function App({
     if (hintCache.current.size > 20_000) hintCache.current = new Map();
     return cheaperHint(r, tariffs, settings.energyKWh, start, hintCache.current);
   };
-  const selectedResult = selectedId ? (results?.find((r) => r.charger.id === selectedId) ?? null) : null;
+  const liveUnavailable = Boolean(statusError && !statuses);
   const best: BestPick | null = !results
     ? null
-    : statusError && !statuses
-      ? {
-          kind: 'none',
-          reason: "Live availability is unavailable right now, so I can't tell which chargers are free. Prices below still work.",
-          fix: null,
-        }
+    : liveUnavailable
+      ? { kind: 'none', reason: '', fix: null }
       : pickBest(results, statuses !== null, { fastOnly: settings.fastOnly, connector: settings.connector });
+  const noneKind: 'empty' | 'nofree' | 'noprice' | 'unavailable' = liveUnavailable
+    ? 'unavailable'
+    : !results || results.length === 0
+      ? 'empty'
+      : results.some((r) => availabilityKind(r.availability) === 'free')
+        ? 'noprice'
+        : 'nofree';
+  const bestId = best?.kind === 'best' ? best.result.charger.id : null;
 
   const toggle = useCallback((id: string) => {
     setExpanded((prev) => {
@@ -214,7 +242,7 @@ export function App({
       }
       setExpanded((prev) => new Set(prev).add(id));
       setSelectedId(id);
-      setView('list');
+      if (!wide) setSheet('full');
       // Wait a frame so the card exists and is expanded before moving to it.
       requestAnimationFrame(() => {
         const el = itemRefs.current.get(id);
@@ -223,7 +251,7 @@ export function App({
         el.focus({ preventScroll: true });
       });
     },
-    [results, shown, reducedMotion],
+    [results, shown, reducedMotion, wide],
   );
 
   const applyFix = useCallback(
@@ -253,29 +281,144 @@ export function App({
   const onMarkerSelect = useCallback(
     (id: string) => {
       setSelectedId(id);
-      const el = itemRefs.current.get(id);
-      if (el && wide) {
-        el.scrollIntoView?.({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'center' });
+      if (!wide) setSheet((cur) => (cur === 'peek' ? 'half' : cur));
+      // Wait a frame so the sheet has its new height before the row scrolls into view.
+      requestAnimationFrame(() => {
+        const el = itemRefs.current.get(id);
+        if (!el) return;
+        el.scrollIntoView?.({ behavior: reducedMotion ? 'auto' : 'smooth', block: wide ? 'center' : 'start' });
         el.focus({ preventScroll: true });
-      }
+      });
     },
     [reducedMotion, wide],
   );
 
-  const distanceFrom = locationError
-    ? "Couldn't get your location. Distances are from Oulu city centre."
-    : pointIsUser
-      ? 'Distances from your location'
-      : 'Distances from Oulu city centre';
+  const distanceFrom = locationError ? t.list.distFailed : pointIsUser ? t.list.distFromMe : t.list.distFromCentre;
 
   const MapComponent = mapView;
-  const showMap = Boolean(MapComponent) && (wide || view === 'map');
-  const showList = wide || view === 'list' || !MapComponent;
+  const useSheet = Boolean(MapComponent) && !wide;
+  const waitingStatuses = !statuses && !statusError && Boolean(statusFetch);
+
+  const pane = (
+    <main className="results-pane" id="results" tabIndex={-1}>
+      {loadError && (
+        <p className="notice notice-error" role="alert">
+          {t.states.loadError}
+        </p>
+      )}
+      {statusError && <p className="notice">{t.states.statusError}</p>}
+      {!results && !loadError && (
+        <div className="list-skeleton">
+          <span className="visually-hidden">{t.list.loading}</span>
+          <div className="hero hero-skeleton" aria-hidden="true">
+            <span className="sk sk-hero-label" />
+            <span className="sk sk-hero-name" />
+            <span className="sk sk-hero-price" />
+            <span className="sk sk-hero-line" />
+          </div>
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="row row-skeleton" aria-hidden="true">
+              <span className="sk sk-row-title" />
+              <span className="sk sk-row-price" />
+              <span className="sk sk-row-meta" />
+            </div>
+          ))}
+        </div>
+      )}
+      {results && best && (
+        <BestCard
+          pick={waitingStatuses && best.kind !== 'best' ? { kind: 'waiting' } : best}
+          energyKWh={settings.energyKWh}
+          hint={best.kind === 'best' ? hintFor(best.result) : null}
+          onShow={showCard}
+          onFix={applyFix}
+          noneKind={noneKind}
+          filters={{ fastOnly: settings.fastOnly, connector: settings.connector }}
+        />
+      )}
+      {results && (
+        <>
+          <div className="results-head">
+            <h2 id="results-heading" className="results-title">
+              {t.list.title}
+            </h2>
+            <div className="sort">
+              <label htmlFor="sort">{t.list.sort}</label>
+              <select
+                id="sort"
+                className="select select-sm"
+                value={settings.sort}
+                onChange={(e) => setSettings({ ...settings, sort: e.target.value as SortKey })}
+              >
+                <option value="cost">{t.list.sortCost}</option>
+                <option value="distance">{t.list.sortDistance}</option>
+                <option value="power">{t.list.sortPower}</option>
+              </select>
+            </div>
+          </div>
+          <p className="result-count">
+            {count === 0 ? '' : `${t.list.showing(Math.min(shown, count), count)} · ${distanceFrom}`}
+          </p>
+          <p className="visually-hidden">{countText}</p>
+          {count === 0 && (
+            <div className="empty">
+              <p className="empty-title">{t.states.emptyTitle(regionLabel)}</p>
+              <p className="muted">{t.states.emptyBody}</p>
+              <div className="empty-actions">
+                {settings.fastOnly && (
+                  <button type="button" className="btn" onClick={() => applyFix('fast')}>
+                    {t.hero.turnOffFast}
+                  </button>
+                )}
+                {settings.connector && (
+                  <button type="button" className="btn" onClick={() => applyFix('connector')}>
+                    {t.hero.useAnyConnector}
+                  </button>
+                )}
+                {settings.region !== 'finland' && (
+                  <button type="button" className="btn" onClick={() => setSettings({ ...settings, region: 'finland' })}>
+                    {t.states.searchAll}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+          <ol className="results" aria-labelledby="results-heading">
+            {visible.map((r) => (
+              <li key={r.charger.id}>
+                <ResultCard
+                  ref={(el) => {
+                    if (el) itemRefs.current.set(r.charger.id, el);
+                    else itemRefs.current.delete(r.charger.id);
+                  }}
+                  result={r}
+                  now={clock}
+                  statusesLoaded={statuses !== null || statusError || !statusFetch}
+                  selected={r.charger.id === selectedId}
+                  highlighted={r.charger.id === highlightedId}
+                  expanded={expanded.has(r.charger.id)}
+                  hint={hintFor(r)}
+                  onToggle={() => toggle(r.charger.id)}
+                  onHighlight={setHighlightedId}
+                />
+              </li>
+            ))}
+          </ol>
+          {count > shown && (
+            <button type="button" className="btn btn-more" onClick={() => setShown((n) => n + PAGE_SIZE)}>
+              {t.list.more(Math.min(PAGE_SIZE, count - shown))}
+            </button>
+          )}
+        </>
+      )}
+      <Footer meta={meta} />
+    </main>
+  );
 
   return (
-    <div className={`app ${showMap && !wide ? 'app-mapview' : ''}`}>
+    <div className="app" data-sheet={useSheet ? sheet : undefined}>
       <a className="skip-link" href="#results">
-        Skip to results
+        {t.skip}
       </a>
       <Header
         region={settings.region}
@@ -283,196 +426,61 @@ export function App({
         onUseLocation={geolocation ? onUseLocation : null}
         locating={locating}
         usingLocation={pointIsUser}
+        onLang={onLang}
       />
-      <section className="chargebar-wrap" aria-label="Your charge">
-        <h1 className="visually-hidden">ChargeCheck Finland: find a free charger and what it costs</h1>
-        <ChargeBar settings={settings} onChange={setSettings} now={clock} />
-      </section>
-
-      {MapComponent && !wide && (
-        <nav className="viewswitch" aria-label="View">
-          <button type="button" aria-pressed={view === 'list'} onClick={() => setView('list')}>
-            <ListIcon /> List
-          </button>
-          <button type="button" aria-pressed={view === 'map'} onClick={() => setView('map')}>
-            <MapIcon /> Map
-          </button>
-        </nav>
-      )}
+      <h1 className="visually-hidden">{t.appTitle}</h1>
+      <ChargeBar settings={settings} onChange={setSettings} now={clock} />
 
       <div className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">
         {announcement}
       </div>
 
-      <div className="split">
-        <main className="results-pane" id="results" tabIndex={-1} hidden={!showList}>
-          {loadError && (
-            <p className="notice notice-error" role="alert">
-              {loadError}
-            </p>
-          )}
-          {statusError && (
-            <p className="notice">
-              Live availability unavailable. Retrying in the background. Prices are still shown.
-            </p>
-          )}
-          {!results && !loadError && (
-            <div className="skeletons">
-              <p className="muted">Loading chargers…</p>
-              <div className="skeleton skeleton-best" aria-hidden="true">
-                <span className="sk sk-title" />
-                <span className="sk sk-price" />
-                <span className="sk sk-line" />
-              </div>
-              {[0, 1, 2].map((i) => (
-                <div key={i} className="skeleton" aria-hidden="true">
-                  <span className="sk sk-title" />
-                  <span className="sk sk-price" />
-                  <span className="sk sk-line" />
-                  <span className="sk sk-line sk-short" />
-                </div>
-              ))}
-            </div>
-          )}
-          {results && best && (
-            <BestCard
-              pick={best}
-              energyKWh={settings.energyKWh}
-              startLabel={timeLabel(settings, clock)}
-              hint={best.kind === 'best' ? hintFor(best.result) : null}
-              progress={!statuses && !statusError && statusFetch ? { pages: statusPages, expected: expectedPages } : null}
-              onShow={showCard}
-              onFix={applyFix}
-            />
-          )}
-          {results && (
-          <div className="results-head">
-            <h2 id="results-heading" className="results-title">
-              Chargers
-            </h2>
-            <div className="sort">
-              <label htmlFor="sort">Sort by</label>
-              <select
-                id="sort"
-                value={settings.sort}
-                onChange={(e) => setSettings({ ...settings, sort: e.target.value as SortKey })}
-              >
-                <option value="cost">Estimated cost</option>
-                <option value="distance">Distance</option>
-                <option value="power">Power</option>
-              </select>
-            </div>
-          </div>
-          )}
-          {results && (
-            <>
-              <p className="result-count muted">
-                {count === 0 ? 'No chargers match.' : `Showing ${Math.min(shown, count)} of ${countText} ${distanceFrom}.`}
-              </p>
-              {count === 0 && (
-                <div className="empty">
-                  <p>Nothing matches these filters in {regionLabel}.</p>
-                  <div className="empty-actions">
-                    {settings.fastOnly && (
-                      <button type="button" className="btn" onClick={() => applyFix('fast')}>
-                        Turn off 'Fast only'
-                      </button>
-                    )}
-                    {settings.connector && (
-                      <button type="button" className="btn" onClick={() => applyFix('connector')}>
-                        Use any connector
-                      </button>
-                    )}
-                    {settings.region !== 'finland' && (
-                      <button type="button" className="btn" onClick={() => setSettings({ ...settings, region: 'finland' })}>
-                        Search all of Finland
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
-              <ol className="results" aria-labelledby="results-heading">
-                {visible.map((r) => (
-                  <li key={r.charger.id}>
-                    <ResultCard
-                      ref={(el) => {
-                        if (el) itemRefs.current.set(r.charger.id, el);
-                        else itemRefs.current.delete(r.charger.id);
-                      }}
-                      result={r}
-                      now={clock}
-                      statusesLoaded={statuses !== null || statusError || !statusFetch}
-                      selected={r.charger.id === selectedId}
-                      highlighted={r.charger.id === highlightedId}
-                      expanded={expanded.has(r.charger.id)}
-                      hint={hintFor(r)}
-                      onToggle={() => toggle(r.charger.id)}
-                      onHighlight={setHighlightedId}
-                    />
-                  </li>
-                ))}
-              </ol>
-              {count > shown && (
-                <button type="button" className="btn more" onClick={() => setShown((s) => s + PAGE_SIZE)}>
-                  Show {Math.min(PAGE_SIZE, count - shown)} more
-                </button>
-              )}
-            </>
-          )}
-        </main>
-
-        {showMap && MapComponent && (
-          <section className="map-pane" aria-label="Map">
-            <Suspense fallback={<p className="muted map-loading">Loading map…</p>}>
+      <div className={useSheet ? 'split split-sheet' : 'split'}>
+        {useSheet ? (
+          <BottomSheet state={sheet} onState={setSheet}>
+            {pane}
+          </BottomSheet>
+        ) : (
+          pane
+        )}
+        {MapComponent && (
+          <section className="map-pane" aria-label={t.map.label}>
+            <Suspense fallback={<p className="map-loading">{t.map.loading}</p>}>
               <MapComponent
                 results={visible}
                 selectedId={selectedId}
                 highlightedId={highlightedId}
+                bestId={bestId}
                 onSelect={onMarkerSelect}
                 reducedMotion={reducedMotion}
                 fitKey={filterKey}
                 resetKey={settings.region}
               />
             </Suspense>
-            {!wide && selectedResult && (
-              <BottomCard
-                result={selectedResult}
-                onShowInList={() => showCard(selectedResult.charger.id)}
-                onClose={() => setSelectedId(null)}
-              />
-            )}
           </section>
         )}
       </div>
-      {showList && <Footer meta={meta} />}
     </div>
   );
 }
 
 function Footer({ meta }: { meta: Meta | null }) {
+  const { t, lang } = useI18n();
   return (
     <footer className="site-footer">
       <p>
         Data: <a href="https://www.digitraffic.fi/">Fintraffic / digitraffic.fi</a>,{' '}
         <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>.
       </p>
-      <p>Estimates from published tariffs. Prices in apps or via roaming can differ.</p>
+      <p>{t.footer.estimates}</p>
       <p>
         {meta && (
           <>
-            Charger data built <time dateTime={meta.builtAt}>{formatBuilt(meta.builtAt)}</time>.{' '}
+            {t.footer.built} <time dateTime={meta.builtAt}>{formatBuilt(lang, meta.builtAt)}</time>.{' '}
           </>
         )}
-        Not affiliated with any operator. <a href={REPO_URL}>Source code</a>
+        {t.footer.notAffiliated} <a href={REPO_URL}>{t.footer.source}</a>
       </p>
     </footer>
   );
-}
-
-function formatBuilt(iso: string): string {
-  return new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Europe/Helsinki',
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(iso));
 }

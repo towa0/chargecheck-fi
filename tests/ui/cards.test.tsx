@@ -83,7 +83,7 @@ const pending: FetchLike = () => new Promise<Response>(() => {});
 
 function renderApp(list = chargers, live: ApiStatus[] | null = statuses) {
   return render(
-    <App
+    <App lang="en"
       data={source(list)}
       statusFetch={live ? fetchStatuses(live) : pending}
       visibility={visible}
@@ -103,8 +103,8 @@ describe('result card states', () => {
   it('shows a single price, a range, no price and a refusal', async () => {
     renderApp();
     await waitFor(() => expect(card('Range place')).toHaveTextContent('2 of 2 free'));
-    expect(within(card('Single price')).getByText('€9.00', { selector: '.price-value' })).toBeInTheDocument();
-    expect(within(card('Range place')).getByText('€9.00–€12.00', { selector: '.price-value' })).toBeInTheDocument();
+    expect(within(card('Single price')).getByText('9,00 €', { selector: '.row-price-value' })).toBeInTheDocument();
+    expect(within(card('Range place')).getByText('9,00–12,00 €', { selector: '.row-price-value' })).toBeInTheDocument();
     expect(within(card('No price place')).getByText('Price not in the open data')).toBeInTheDocument();
     const refused = card('Refused place');
     expect(within(refused).getByText("Can't estimate")).toBeInTheDocument();
@@ -117,19 +117,25 @@ describe('result card states', () => {
     expect(card('Busy cheap')).toHaveTextContent('In use');
     expect(card('Refused place')).toHaveTextContent('Out of order');
     expect(card('No price place')).toHaveTextContent('No live status');
-    expect(card('Range place')).toHaveTextContent('status 2 h ago');
     expect(card('Range place')).not.toHaveTextContent('may be outdated');
+    expect(card('Single price')).toHaveTextContent('may be outdated');
+    const user = userEvent.setup();
+    await user.click(within(card('Range place')).getByRole('button', { name: 'Details: Range place' }));
+    expect(card('Range place')).toHaveTextContent('status 2 h ago');
+    await user.click(within(card('Single price')).getByRole('button', { name: 'Details: Single price' }));
     expect(card('Single price')).toHaveTextContent('status 40 h ago · may be outdated');
-    expect(card('Range place').querySelector('.shape-free')).not.toBeNull();
-    expect(card('Busy cheap').querySelector('.shape-busy')).not.toBeNull();
+    expect(card('Range place').querySelector('.status-free')).not.toBeNull();
+    expect(card('Busy cheap').querySelector('.status-busy')).not.toBeNull();
+    expect(card('Refused place').querySelector('.status-down')).not.toBeNull();
   });
 
   it('shows power badge, connectors and distance', async () => {
     renderApp();
     const c = await screen.findByRole('article', { name: 'Range place' });
     expect(c).toHaveTextContent('150 kW DC');
-    expect(c).toHaveTextContent('Type 2, CCS');
-    expect(c).toHaveTextContent(/\d+ m · Operator range/);
+    expect(c).toHaveTextContent('Type 2');
+    expect(c).toHaveTextContent('CCS');
+    expect(c).toHaveTextContent(/Operator range · \d+ m/);
   });
 
   it('expands to breakdown, why a range, opening hours and directions', async () => {
@@ -151,15 +157,16 @@ describe('result card states', () => {
     expect(within(c).getByRole('link', { name: 'Open in maps app' }).getAttribute('href')).toMatch(/^geo:65\.02,25\.4682/);
     expect(c).toHaveTextContent('Estimated from the published tariff.');
     await user.click(toggle);
-    expect(within(c).queryByRole('table')).not.toBeInTheDocument();
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(c.querySelector('.row-details')).toHaveAttribute('inert');
   });
 
   it('shows a checking pill while statuses load and still shows prices', async () => {
     renderApp(chargers, null);
     const c = await screen.findByRole('article', { name: 'Single price' });
-    expect(within(c).getByText('Checking…')).toBeInTheDocument();
-    expect(within(c).getByText('€9.00', { selector: '.price-value' })).toBeInTheDocument();
-    expect(best()).toHaveTextContent('Checking which chargers are free…');
+    expect(within(c).getByText('Checking status')).toBeInTheDocument();
+    expect(within(c).getByText('9,00 €', { selector: '.row-price-value' })).toBeInTheDocument();
+    expect(best()).toHaveTextContent('Checking which chargers are free');
   });
 });
 
@@ -168,16 +175,17 @@ describe('best right now', () => {
     renderApp();
     await waitFor(() => expect(best()).toHaveTextContent('Range place'));
     // Busy cheap is cheaper but in use; Single price ties at 9.00 but is farther.
-    expect(best()).toHaveTextContent('€9.00–€12.00');
+    expect(best()).toHaveTextContent('9,00–12,00 €');
     expect(best()).toHaveTextContent('2 of 2 free');
-    expect(best()).toHaveTextContent('30 kWh at up to 11 kW, starting now. Estimated from the published tariff.');
+    expect(best()).toHaveTextContent('Charging takes about');
+    expect(best()).toHaveTextContent('Estimated from the published tariff.');
   });
 
-  it('opens the card from "See details"', async () => {
+  it('opens the card from "Show in list"', async () => {
     const user = userEvent.setup();
     renderApp();
     await waitFor(() => expect(best()).toHaveTextContent('Range place'));
-    await user.click(within(best()).getByRole('button', { name: 'See details: Range place' }));
+    await user.click(within(best()).getByRole('button', { name: 'Show in list: Range place' }));
     expect(within(card('Range place')).getByRole('button', { name: 'Details: Range place' })).toHaveAttribute('aria-expanded', 'true');
     await waitFor(() => expect(card('Range place')).toHaveFocus());
   });
@@ -188,7 +196,7 @@ describe('best right now', () => {
     await waitFor(() => expect(best()).toHaveTextContent('No free chargers match right now.'));
     // Neither of these is fast, so turning on Fast only leaves nothing.
     await user.click(screen.getByLabelText('Fast only (50 kW or more)'));
-    await waitFor(() => expect(best()).toHaveTextContent("No fast chargers match. Try turning off 'Fast only'."));
+    await waitFor(() => expect(best()).toHaveTextContent('No fast chargers match.'));
     await user.click(within(best()).getByRole('button', { name: "Turn off 'Fast only'" }));
     expect(screen.getByLabelText('Fast only (50 kW or more)')).not.toBeChecked();
   });

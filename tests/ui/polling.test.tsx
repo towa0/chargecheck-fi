@@ -34,7 +34,7 @@ describe('status polling in the real app wiring', () => {
       );
     };
     // No visibility prop: the app uses document visibility, as in production.
-    render(<App data={data} statusFetch={statusFetch} mapView={null} geolocation={null} storage={null} announceDelayMs={10} />);
+    render(<App lang="en" data={data} statusFetch={statusFetch} mapView={null} geolocation={null} storage={null} announceDelayMs={10} />);
     await screen.findByRole('article', { name: 'Alpha' });
     await waitFor(() => expect(calls).toBe(1));
     await act(async () => {
@@ -66,7 +66,7 @@ describe('hard cap on status requests', () => {
       );
     };
     const app = (n: number) => (
-      <App data={data} statusFetch={statusFetch} mapView={null} geolocation={null} storage={null} announceDelayMs={10 + n} />
+      <App lang="en" data={data} statusFetch={statusFetch} mapView={null} geolocation={null} storage={null} announceDelayMs={10 + n} />
     );
     // 10 minutes of churn: every 20 s the app is unmounted and mounted again, and re-rendered 5 times.
     for (let i = 0; i < 30; i++) {

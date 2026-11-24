@@ -30,7 +30,7 @@ function deferred<T>() {
 
 function renderApp(data: DataSource, statusFetch: FetchLike) {
   return render(
-    <App data={data} statusFetch={statusFetch} visibility={visible} now={() => NOW} mapView={null} announceDelayMs={10} geolocation={null} storage={null} />,
+    <App lang="en" data={data} statusFetch={statusFetch} visibility={visible} now={() => NOW} mapView={null} announceDelayMs={10} geolocation={null} storage={null} />,
   );
 }
 
@@ -41,29 +41,25 @@ describe('loading states', () => {
     const region = deferred<{ region: string; chargers: Charger[] }>();
     const data: DataSource = { meta: async () => meta, tariffs: async () => tariffs, region: () => region.promise };
     const { container } = renderApp(data, () => new Promise<Response>(() => {}));
-    expect(screen.getByText('Loading chargers…')).toBeInTheDocument();
-    expect(container.querySelectorAll('.skeleton')).toHaveLength(4);
+    expect(screen.getByText('Loading chargers')).toBeInTheDocument();
+    expect(container.querySelectorAll('.hero-skeleton, .row-skeleton')).toHaveLength(5);
     await act(async () => region.resolve({ region: 'oulu', chargers }));
     expect(await screen.findByRole('article', { name: 'Alpha' })).toBeInTheDocument();
-    expect(container.querySelectorAll('.skeleton')).toHaveLength(0);
+    expect(container.querySelectorAll('.row-skeleton')).toHaveLength(0);
   });
 
-  it('shows prices before live availability, with page progress', async () => {
+  it('shows prices before live availability, with skeletons for the status and the best pick', async () => {
     const pages = [deferred<Response>(), deferred<Response>(), deferred<Response>()];
     let call = 0;
     const statusFetch: FetchLike = () => pages[call++]!.promise;
     const data: DataSource = { meta: async () => meta, tariffs: async () => tariffs, region: async (id) => ({ region: id, chargers }) };
-    renderApp(data, statusFetch);
+    const { container } = renderApp(data, statusFetch);
     const card = await screen.findByRole('article', { name: 'Alpha' });
-    expect(within(card).getByText('€9.00', { selector: '.price-value' })).toBeInTheDocument();
-    const progress = screen.getByLabelText('Loading live availability…');
-    // 1200 locations at 500 per page
-    expect(progress).toHaveAttribute('max', '3');
-    expect(progress).toHaveAttribute('value', '0');
+    expect(within(card).getByText('9,00 €', { selector: '.row-price-value' })).toBeInTheDocument();
+    expect(within(card).getByText('Checking status')).toBeInTheDocument();
+    expect(container.querySelector('.hero-skeleton')).not.toBeNull();
     await act(async () => pages[0]!.resolve(new Response(JSON.stringify({ statuses: [], pagination: { nextCursor: 'c2' } }))));
-    await waitFor(() => expect(progress).toHaveAttribute('value', '1'));
     await act(async () => pages[1]!.resolve(new Response(JSON.stringify({ statuses: [], pagination: { nextCursor: 'c3' } }))));
-    await waitFor(() => expect(progress).toHaveAttribute('value', '2'));
     await act(async () =>
       pages[2]!.resolve(
         new Response(
@@ -74,8 +70,9 @@ describe('loading states', () => {
         ),
       ),
     );
-    await waitFor(() => expect(screen.queryByText('Loading live availability…')).not.toBeInTheDocument());
-    expect(card).toHaveTextContent('1 of 1 free');
+    await waitFor(() => expect(card).toHaveTextContent('Free'));
+    expect(within(card).queryByText('Checking status')).not.toBeInTheDocument();
+    expect(container.querySelector('.hero-skeleton')).toBeNull();
   });
 });
 
@@ -91,7 +88,7 @@ describe('status API failure', () => {
     renderApp(data, failing);
     const card = await screen.findByRole('article', { name: 'Alpha' });
     await waitFor(() => expect(screen.getByText(/Live availability unavailable\. Retrying in the background\./)).toBeInTheDocument());
-    expect(within(card).getByText('€9.00', { selector: '.price-value' })).toBeInTheDocument();
+    expect(within(card).getByText('9,00 €', { selector: '.row-price-value' })).toBeInTheDocument();
     expect(card).toHaveTextContent('No live status');
     expect(screen.getByRole('region', { name: 'Best right now' })).toHaveTextContent("can't tell which chargers are free");
     expect(calls).toBe(1);

@@ -1,5 +1,6 @@
 import { REGIONS } from '../data/regions.ts';
-import { BoltIcon, LocateIcon } from './Icons.tsx';
+import { useI18n, type Lang } from '../i18n/index.tsx';
+import { LocateIcon } from './Icons.tsx';
 
 interface Props {
   region: string;
@@ -7,38 +8,48 @@ interface Props {
   onUseLocation: (() => void) | null;
   locating: boolean;
   usingLocation: boolean;
+  onLang: (lang: Lang) => void;
 }
 
-export function Header({ region, onRegion, onUseLocation, locating, usingLocation }: Props) {
+export function Header({ region, onRegion, onUseLocation, locating, usingLocation, onLang }: Props) {
+  const { t, lang } = useI18n();
   return (
     <header className="topbar">
-      <a className="brand" href="./" aria-label="ChargeCheck Finland, home">
-        <span className="brand-mark" aria-hidden="true">
-          <BoltIcon width={16} height={16} />
-        </span>
-        <span className="brand-name">ChargeCheck</span>
+      <a className="wordmark" href="./" aria-label={t.nav.home}>
+        ChargeCheck
       </a>
       <div className="topbar-actions">
-        <fieldset className="segmented segmented-sm">
-          <legend className="visually-hidden">Region</legend>
-          {REGIONS.map((r) => (
-            <label key={r.id} className="seg">
-              <input type="radio" name="region" checked={region === r.id} onChange={() => onRegion(r.id)} />
-              <span>{r.label}</span>
-            </label>
-          ))}
-        </fieldset>
+        <div className="select-wrap">
+          <label className="visually-hidden" htmlFor="region">
+            {t.nav.region}
+          </label>
+          <select id="region" className="select" value={region} onChange={(e) => onRegion(e.target.value)}>
+            {REGIONS.map((r) => (
+              <option key={r.id} value={r.id}>
+                {t.regions[r.id] ?? r.label}
+              </option>
+            ))}
+          </select>
+        </div>
         {onUseLocation && (
           <button
             type="button"
-            className={usingLocation ? 'btn btn-icon btn-on' : 'btn btn-icon'}
+            className={usingLocation ? 'btn btn-near btn-on' : 'btn btn-near'}
             onClick={onUseLocation}
             disabled={locating}
+            aria-pressed={usingLocation}
           >
             <LocateIcon width={18} height={18} />
-            <span className="btn-icon-text">{locating ? 'Locating…' : 'Near me'}</span>
+            <span className="btn-text">{locating ? t.nav.locating : t.nav.nearMe}</span>
           </button>
         )}
+        <div className="lang" role="group" aria-label={t.nav.language}>
+          {(['fi', 'en'] as const).map((l) => (
+            <button key={l} type="button" aria-pressed={lang === l} lang={l} onClick={() => onLang(l)}>
+              {l.toUpperCase()}
+            </button>
+          ))}
+        </div>
       </div>
     </header>
   );

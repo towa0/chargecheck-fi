@@ -87,7 +87,7 @@ const baseStatuses = (): ApiStatus[] => [
 
 function renderApp(statusFetch: FetchLike | null = statusesFetch(baseStatuses), storage: Storage | null = null) {
   return render(
-    <App
+    <App lang="en"
       data={data}
       statusFetch={statusFetch}
       visibility={visible}
@@ -137,9 +137,9 @@ describe('App', () => {
     renderApp();
     await screen.findByRole('article', { name: 'Alpha AC' });
     // 30 kWh * 0.20 * 1.255
-    expect(within(card('Alpha AC')).getByText('€7.53', { selector: '.price-value' })).toBeInTheDocument();
+    expect(within(card('Alpha AC')).getByText('7,53 €', { selector: '.row-price-value' })).toBeInTheDocument();
     expect(within(card('Alpha AC')).getByText('estimated')).toBeInTheDocument();
-    expect(within(card('Bravo DC')).getByText('€12.00', { selector: '.price-value' })).toBeInTheDocument();
+    expect(within(card('Bravo DC')).getByText('12,00 €', { selector: '.row-price-value' })).toBeInTheDocument();
     expect(within(card('Charlie no price')).getByText('Price not in the open data')).toBeInTheDocument();
     expect(within(card('Delta congestion')).getByText(/Can't estimate: .*CONGESTION_TIME/)).toBeInTheDocument();
   });
@@ -174,12 +174,12 @@ describe('App', () => {
     await screen.findByRole('article', { name: 'Alpha AC' });
     await setCustomEnergy(user, '10');
     // 10 * 0.20 * 1.255
-    expect(within(card('Alpha AC')).getByText('€2.51', { selector: '.price-value' })).toBeInTheDocument();
+    expect(within(card('Alpha AC')).getByText('2,51 €', { selector: '.row-price-value' })).toBeInTheDocument();
     const energy = await setCustomEnergy(user, '');
     expect(screen.getByText('Enter a number from 1 to 200.')).toBeInTheDocument();
     expect(energy).toHaveAttribute('aria-invalid', 'true');
     // Keeps the last valid estimate.
-    expect(within(card('Alpha AC')).getByText('€2.51', { selector: '.price-value' })).toBeInTheDocument();
+    expect(within(card('Alpha AC')).getByText('2,51 €', { selector: '.row-price-value' })).toBeInTheDocument();
   });
 
   it('shows live availability with its age and flags stale statuses', async () => {
@@ -192,6 +192,7 @@ describe('App', () => {
     expect(alpha).toHaveTextContent('status 3 h ago');
     expect(alpha).not.toHaveTextContent('may be outdated');
     const bravo = card('Bravo DC');
+    await userEvent.setup().click(within(bravo).getByRole('button', { name: 'Details: Bravo DC' }));
     expect(bravo).toHaveTextContent('status 30 h ago');
     expect(bravo).toHaveTextContent('may be outdated');
     expect(card('Charlie no price')).toHaveTextContent('No live status');
@@ -202,7 +203,7 @@ describe('App', () => {
   it('shows a loading state before statuses arrive', async () => {
     renderApp(() => new Promise<Response>(() => {}));
     await screen.findByRole('article', { name: 'Alpha AC' });
-    expect(within(card('Alpha AC')).getByText('Checking…')).toBeInTheDocument();
+    expect(within(card('Alpha AC')).getByText('Checking status')).toBeInTheDocument();
   });
 
   it('expands the cost breakdown', async () => {
@@ -213,7 +214,7 @@ describe('App', () => {
     await user.click(within(alpha).getByRole('button', { name: 'Details: Alpha AC' }));
     const table = within(alpha).getByRole('table');
     expect(within(table).getByRole('rowheader', { name: 'Energy' })).toBeInTheDocument();
-    expect(table).toHaveTextContent('30.0 kWh × €0.251 / kWh (VAT 25.5%)');
+    expect(table).toHaveTextContent('30,0 kWh × 0,251 € / kWh (VAT 25.5%)');
     expect(alpha).toHaveTextContent('Charging at a steady 11 kW');
   });
 
@@ -244,7 +245,7 @@ describe('charge bar', () => {
     expect(screen.getByRole('button', { name: 'Energy: 50 kWh' })).toHaveFocus();
     expect(screen.queryByRole('radio', { name: '50 kWh' })).not.toBeInTheDocument();
     // 50 * 0.20 * 1.255
-    expect(within(card('Alpha AC')).getByText('€12.55', { selector: '.price-value' })).toBeInTheDocument();
+    expect(within(card('Alpha AC')).getByText('12,55 €', { selector: '.row-price-value' })).toBeInTheDocument();
 
     await user.tab();
     expect(screen.getByRole('button', { name: 'Start: Now' })).toHaveFocus();
@@ -292,7 +293,7 @@ describe('charge bar', () => {
     const user = userEvent.setup();
     renderApp();
     await screen.findByRole('article', { name: 'Alpha AC' });
-    await user.click(screen.getByRole('radio', { name: 'Finland' }));
+    await user.selectOptions(screen.getByLabelText('City'), 'finland');
     await waitFor(() => expect(screen.getByText(/found in Finland/)).toBeInTheDocument());
   });
 });

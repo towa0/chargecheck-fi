@@ -104,3 +104,67 @@ export const StatusIcon = ({ kind, ...p }: P & { kind: 'free' | 'busy' | 'down' 
   if (kind === 'down') return <CrossIcon {...p} />;
   return <QuestionIcon {...p} />;
 };
+
+/** Plug faces drawn at 24px: round body with the pin layout of each standard. */
+export function ConnectorIcon({ standard, ...p }: P & { standard: string }) {
+  const common = { ...p, width: p.width ?? 18, height: p.height ?? 18, viewBox: '0 0 24 24', strokeWidth: 1.6 };
+  if (standard === 'IEC_62196_T2') {
+    return (
+      <Svg {...common}>
+        <path d="M5 8.5A8.5 8.5 0 0 1 19 8.5V13a8.5 8.5 0 0 1-14 6.5V8.5Z" />
+        <circle cx="12" cy="7.5" r=".7" fill="currentColor" />
+        <circle cx="8" cy="11" r=".7" fill="currentColor" />
+        <circle cx="16" cy="11" r=".7" fill="currentColor" />
+        <circle cx="12" cy="13.5" r=".7" fill="currentColor" />
+        <circle cx="8.5" cy="16.5" r=".7" fill="currentColor" />
+        <circle cx="15.5" cy="16.5" r=".7" fill="currentColor" />
+      </Svg>
+    );
+  }
+  if (standard === 'IEC_62196_T2_COMBO') {
+    return (
+      <Svg {...common}>
+        <path d="M5 4.5A8 8 0 0 1 19 4.5V10H5V4.5Z" />
+        <circle cx="9" cy="6" r=".7" fill="currentColor" />
+        <circle cx="15" cy="6" r=".7" fill="currentColor" />
+        <circle cx="12" cy="8" r=".7" fill="currentColor" />
+        <circle cx="8" cy="17" r="3.2" />
+        <circle cx="16" cy="17" r="3.2" />
+      </Svg>
+    );
+  }
+  if (standard === 'CHADEMO') {
+    return (
+      <Svg {...common}>
+        <circle cx="12" cy="12" r="9" />
+        <circle cx="12" cy="7.5" r="1.2" />
+        <circle cx="12" cy="16.5" r="1.2" />
+        <circle cx="7.5" cy="12" r="1.2" />
+        <circle cx="16.5" cy="12" r="1.2" />
+      </Svg>
+    );
+  }
+  if (standard === 'DOMESTIC_F') {
+    return (
+      <Svg {...common}>
+        <circle cx="12" cy="12" r="8.5" />
+        <circle cx="9" cy="12" r="1.3" />
+        <circle cx="15" cy="12" r="1.3" />
+        <path d="M12 3.5v2.5m0 12v2.5" />
+      </Svg>
+    );
+  }
+  return (
+    <Svg {...common}>
+      <rect x="4" y="6" width="16" height="12" rx="3" />
+      <circle cx="9" cy="12" r="1.2" />
+      <circle cx="15" cy="12" r="1.2" />
+    </Svg>
+  );
+}
+
+export const NavigateIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M14 2 2 7.2l5 1.8 1.8 5L14 2Z" />
+  </Svg>
+);
